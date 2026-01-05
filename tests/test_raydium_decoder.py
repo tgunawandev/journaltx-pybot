@@ -314,7 +314,7 @@ class TestConstants:
     def test_raydium_program_id(self):
         """Verify Raydium AMM V4 program ID."""
         # This should NOT change - it's the canonical Raydium program
-        assert RAYDIUM_AMM_V4 == "675kPX9MHTjS2zt1qfSiQiLpKcM8cCtKxEbZqE8qiVJ"
+        assert RAYDIUM_AMM_V4 == "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
     def test_wsol_mint(self):
         """Verify WSOL mint address."""

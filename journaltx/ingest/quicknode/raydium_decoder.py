@@ -19,7 +19,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 # Raydium AMM V4 Program ID
-RAYDIUM_AMM_V4 = "675kPX9MHTjS2zt1qfSiQiLpKcM8cCtKxEbZqE8qiVJ"
+RAYDIUM_AMM_V4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
 # WSOL mint address
 WSOL_MINT = "So11111111111111111111111111111111111111112"

@@ -865,7 +865,7 @@ JournalTX uses **real on-chain data** from QuickNode WebSocket subscriptions - n
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
 │                                                                     │
 │  1. WebSocket → logsSubscribe(Raydium AMM Program)                  │
-│     └── Subscribes to: 675kPX9MHTjS2zt1qfSiQiLpKcM8cCtKxEbZqE8qiVJ  │
+│     └── Subscribes to: 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8  │
 │                                                                     │
 │  2. HTTP RPC → getTransaction(signature, jsonParsed)                │
 │     └── Fetches full transaction details                            │
