@@ -25,6 +25,10 @@ def get_raydium_subscription() -> Dict[str, Any]:
 
     This subscribes to all transactions involving the Raydium AMM program,
     which includes liquidity additions.
+
+    Solana logsSubscribe format:
+    - params[0]: filter (mentions or all)
+    - params[1]: config object with commitment level
     """
     return {
         "jsonrpc": "2.0",
@@ -32,7 +36,7 @@ def get_raydium_subscription() -> Dict[str, Any]:
         "method": "logsSubscribe",
         "params": [
             {"mentions": [RAYDIUM_AMM_PROGRAM]},
-            "confirmed"
+            {"commitment": "confirmed"}
         ]
     }
 
@@ -47,7 +51,7 @@ def get_orca_subscription() -> Dict[str, Any]:
         "method": "logsSubscribe",
         "params": [
             {"mentions": [ORCA_SWAP_PROGRAM]},
-            "confirmed"
+            {"commitment": "confirmed"}
         ]
     }
 

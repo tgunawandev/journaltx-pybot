@@ -112,11 +112,16 @@ class Alert(Base):
     type: Mapped[AlertType] = mapped_column(SQLEnum(AlertType), nullable=False)
     chain: Mapped[str] = mapped_column(String(50), default="solana")
     pair: Mapped[str] = mapped_column(String(100), nullable=False)
+    token_mint: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Token mint address
+    pool_address: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Raydium pool address
+    tx_signature: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Transaction signature
     value_sol: Mapped[float] = mapped_column(Float, nullable=False)
     value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     lp_sol_before: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Liquidity before LP add
     lp_sol_after: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # Liquidity after LP add
+    market_cap: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Market cap at time of alert
     pair_age_hours: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Pair age in hours
+    is_new_pool: Mapped[Optional[bool]] = mapped_column(Integer, nullable=True)  # True if pool was just created
     early_stage_passed: Mapped[Optional[bool]] = mapped_column(Integer, nullable=True)  # Early-stage filter result
     mode: Mapped[str] = mapped_column(String(10), default="LIVE")  # LIVE or TEST mode
     triggered_at: Mapped[datetime] = mapped_column(

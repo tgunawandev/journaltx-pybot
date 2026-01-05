@@ -5,19 +5,70 @@ This module handles decoding Solana transaction data to extract
 liquidity pool addition information including tokens and amounts.
 """
 
-import base64
 import logging
-from typing import Dict, Any, Optional, Tuple
-from struct import unpack_from
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
 
 import requests
 
+from journaltx.ingest.quicknode.raydium_decoder import (
+    decode_raydium_transaction,
+    LPAdditionInfo,
+    RAYDIUM_AMM_V4,
+)
+from journaltx.ingest.token_resolver import (
+    get_token_resolver,
+    get_price_service,
+    PairInfo,
+)
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ParsedLPEvent:
+    """
+    Fully parsed LP event with all metadata.
+    """
+    # Transaction info
+    signature: str
+    slot: int
+
+    # Pool info
+    pool_address: str
+    is_new_pool: bool
+
+    # Token info
+    token_mint: str
+    token_symbol: str
+    token_name: str
+
+    # Amounts
+    sol_amount: float
+    sol_amount_usd: float
+    token_amount: float
+
+    # Market data (from DexScreener)
+    liquidity_usd: float
+    liquidity_sol: float
+    market_cap: float
+    pair_age_hours: float
+    price_usd: float
+
+    # Pair info
+    pair_string: str  # e.g., "BONK/SOL"
+    dexscreener_url: str
+
+    # Timestamp
+    timestamp: datetime
 
 
 class SolanaTransactionParser:
     """
     Parse Solana transactions to extract LP addition details.
+
+    Uses Raydium decoder + token resolver for complete data.
     """
 
     def __init__(self, http_rpc_url: str):
@@ -29,6 +80,8 @@ class SolanaTransactionParser:
         """
         self.http_rpc_url = http_rpc_url
         self.session = requests.Session()
+        self.token_resolver = get_token_resolver(http_rpc_url)
+        self.price_service = get_price_service()
 
     def get_transaction(self, signature: str) -> Optional[Dict[str, Any]]:
         """
@@ -47,17 +100,24 @@ class SolanaTransactionParser:
                 "method": "getTransaction",
                 "params": [
                     signature,
-                    {"encoding": "jsonParsed"}
+                    {
+                        "encoding": "jsonParsed",
+                        "maxSupportedTransactionVersion": 0
+                    }
                 ]
             }
 
             response = self.session.post(
                 self.http_rpc_url,
                 json=payload,
-                timeout=10
+                timeout=15
             )
             response.raise_for_status()
             data = response.json()
+
+            if data.get("error"):
+                logger.error(f"RPC error: {data['error']}")
+                return None
 
             if data.get("result"):
                 return data["result"]
@@ -68,63 +128,147 @@ class SolanaTransactionParser:
             logger.error(f"Error fetching transaction {signature}: {e}")
             return None
 
-    def extract_lp_addition(self, transaction: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def parse_lp_event(self, transaction: Dict[str, Any]) -> Optional[ParsedLPEvent]:
         """
-        Extract LP addition details from a transaction.
+        Parse a transaction into a complete LP event.
 
         Args:
             transaction: Parsed transaction data from QuickNode
 
         Returns:
-            Dict with 'token_a', 'token_b', 'amount_a', 'amount_b' or None
+            ParsedLPEvent with all metadata, or None if not an LP event
         """
         try:
-            # Get transaction instructions
-            meta = transaction.get("meta", {})
-            pre_balances = meta.get("preBalances", [])
-            post_balances = meta.get("postBalances", [])
-            account_keys = transaction.get("transaction", {}).get("message", {}).get("accountKeys", [])
+            # Step 1: Decode Raydium instruction
+            lp_info = decode_raydium_transaction(transaction, self.http_rpc_url)
 
-            if not account_keys or len(pre_balances) == 0 or len(post_balances) == 0:
+            if not lp_info:
                 return None
 
-            # Find SOL balance changes
-            sol_changes = []
-
-            for i, (pre, post) in enumerate(zip(pre_balances, post_balances)):
-                change = int(post) - int(pre)
-                # Only consider positive changes (deposits)
-                if change > 0:
-                    sol_changes.append({
-                        "account": account_keys[i],
-                        "change_lamports": change,
-                        "change_sol": change / 1_000_000_000  # Convert to SOL
-                    })
-
-            if not sol_changes:
+            if lp_info.quote_amount_sol <= 0:
+                logger.debug("No SOL amount in LP addition")
                 return None
 
-            # Sort by amount descending (largest deposit is likely the LP)
-            sol_changes.sort(key=lambda x: x["change_sol"], reverse=True)
+            # Step 2: Get token metadata
+            token_info = self.token_resolver.get_token_info(lp_info.token_mint)
+            token_symbol = token_info.symbol if token_info else "???"
+            token_name = token_info.name if token_info else "Unknown Token"
 
-            # Use the largest SOL deposit as our estimate
-            largest_deposit = sol_changes[0]
+            # Step 3: Get pair/market data from DexScreener
+            pair_info = self._get_pair_info(lp_info)
 
-            # For now, we'll use a simplified approach
-            # In production, you'd want to decode actual instruction data
-            # to get exact token amounts and mint addresses
+            # Step 4: Get SOL price
+            sol_price = self.price_service.get_sol_price_usd()
+            sol_amount_usd = lp_info.quote_amount_sol * sol_price
 
-            return {
-                "token_a": "UNKNOWN",
-                "token_b": "SOL",
-                "amount_a": 0.0,  # Would need instruction decoding
-                "amount_b": largest_deposit["change_sol"],
-                "signature": transaction.get("signatures", [""])[0]
-            }
+            # Step 5: Calculate pair age
+            pair_age_hours = 0.0
+            if pair_info and pair_info.pair_created_at:
+                created_ts = pair_info.pair_created_at / 1000  # ms to seconds
+                age_seconds = datetime.now().timestamp() - created_ts
+                pair_age_hours = max(0, age_seconds / 3600)
+
+            # If new pool, age is essentially 0
+            if lp_info.is_pool_creation:
+                pair_age_hours = 0.0
+
+            # Step 6: Get slot
+            slot = transaction.get("slot", 0)
+
+            # Step 7: Build pair string
+            # Use DexScreener symbol if available and different
+            if pair_info and pair_info.token_symbol and pair_info.token_symbol != "???":
+                token_symbol = pair_info.token_symbol
+                token_name = pair_info.token_name
+
+            pair_string = f"{token_symbol}/SOL"
+
+            # Step 8: Build DexScreener URL
+            dex_url = f"https://dexscreener.com/solana/{lp_info.token_mint}"
+            if pair_info and pair_info.pair_address:
+                dex_url = f"https://dexscreener.com/solana/{pair_info.pair_address}"
+
+            # Use ON-CHAIN liquidity data (not DexScreener)
+            # liquidity_before and liquidity_after come from balance delta analysis
+            liquidity_before_sol = lp_info.liquidity_before_sol
+            liquidity_after_sol = lp_info.liquidity_after_sol
+
+            # Log the on-chain vs DexScreener comparison for debugging
+            if pair_info:
+                logger.debug(
+                    f"Liquidity comparison: on-chain={liquidity_after_sol:.1f} SOL, "
+                    f"DexScreener={pair_info.liquidity_quote:.1f} SOL"
+                )
+
+            return ParsedLPEvent(
+                signature=lp_info.signature,
+                slot=slot,
+                pool_address=lp_info.pool_address,
+                is_new_pool=lp_info.is_pool_creation,
+                token_mint=lp_info.token_mint,
+                token_symbol=token_symbol,
+                token_name=token_name,
+                sol_amount=lp_info.quote_amount_sol,
+                sol_amount_usd=sol_amount_usd,
+                token_amount=lp_info.token_amount,
+                # Use ON-CHAIN liquidity (primary) with DexScreener as fallback
+                liquidity_usd=liquidity_after_sol * sol_price if liquidity_after_sol > 0 else (pair_info.liquidity_usd if pair_info else sol_amount_usd * 2),
+                liquidity_sol=liquidity_after_sol if liquidity_after_sol > 0 else (pair_info.liquidity_quote if pair_info else lp_info.quote_amount_sol),
+                market_cap=pair_info.market_cap if pair_info else 0,
+                pair_age_hours=pair_age_hours,
+                price_usd=pair_info.price_usd if pair_info else 0,
+                pair_string=pair_string,
+                dexscreener_url=dex_url,
+                timestamp=datetime.utcnow()
+            )
 
         except Exception as e:
-            logger.error(f"Error parsing transaction: {e}")
+            logger.error(f"Error parsing LP event: {e}")
             return None
+
+    def _get_pair_info(self, lp_info: LPAdditionInfo) -> Optional[PairInfo]:
+        """
+        Get pair info from DexScreener.
+
+        Tries pool address first, then token mint.
+        """
+        # Try by pool address first (more accurate)
+        pair_info = self.token_resolver.get_pair_info_by_address(lp_info.pool_address)
+
+        if pair_info:
+            return pair_info
+
+        # Fall back to token mint
+        return self.token_resolver.get_pair_info_by_token(lp_info.token_mint)
+
+    def extract_lp_addition(self, transaction: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Legacy method for backwards compatibility.
+
+        Use parse_lp_event() for full data.
+        """
+        parsed = self.parse_lp_event(transaction)
+
+        if not parsed:
+            return None
+
+        return {
+            "token_a": parsed.token_symbol,
+            "token_b": "SOL",
+            "token_mint": parsed.token_mint,
+            "pool_address": parsed.pool_address,
+            "amount_a": parsed.token_amount,
+            "amount_b": parsed.sol_amount,
+            "amount_b_usd": parsed.sol_amount_usd,
+            "is_new_pool": parsed.is_new_pool,
+            "liquidity_usd": parsed.liquidity_usd,
+            "liquidity_sol": parsed.liquidity_sol,
+            "market_cap": parsed.market_cap,
+            "pair_age_hours": parsed.pair_age_hours,
+            "signature": parsed.signature,
+            "pair_string": parsed.pair_string,
+            "dexscreener_url": parsed.dexscreener_url,
+        }
 
     def is_raydium_lp_add(self, transaction: Dict[str, Any]) -> bool:
         """
@@ -137,16 +281,20 @@ class SolanaTransactionParser:
             True if this is a Raydium LP addition
         """
         try:
-            # Check if any instruction invokes Raydium AMM
             message = transaction.get("transaction", {}).get("message", {})
             instructions = message.get("instructions", [])
 
             for instruction in instructions:
                 program_id = instruction.get("programId")
-                if program_id == "675kPX9MHTjS2zt1qf1iQiLpKcM8cCtKxEbZqE8qiVJ":
-                    # This is a Raydium instruction
-                    # Would need to decode instruction data to confirm it's an LP add
+                if program_id == RAYDIUM_AMM_V4:
                     return True
+
+            # Check inner instructions
+            meta = transaction.get("meta", {})
+            for inner in meta.get("innerInstructions", []):
+                for ix in inner.get("instructions", []):
+                    if ix.get("programId") == RAYDIUM_AMM_V4:
+                        return True
 
             return False
 

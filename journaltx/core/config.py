@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+from dotenv import load_dotenv
+
 
 @dataclass
 class Config:
@@ -79,6 +81,9 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from JSON templates + environment variables."""
+        # Load .env file
+        load_dotenv()
+
         # Load profile template
         profile_name = os.getenv("PROFILE_TEMPLATE", "balanced")
         profile_path = Path(f"config/profiles/{profile_name}.json")

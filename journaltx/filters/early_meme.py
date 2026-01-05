@@ -101,6 +101,8 @@ def check_early_stage_opportunity(
     max_market_cap_defensive: float = 20_000_000.0,
     signal_window_minutes: int = 30,
     legacy_memes: list = None,
+    is_new_pool: bool = False,
+    require_multi_signal: bool = True,
 ) -> Tuple[bool, bool, dict]:
     """
     Check if this is an early-stage opportunity with momentum.
@@ -111,6 +113,11 @@ def check_early_stage_opportunity(
     - should_log: Log to database (even if no alert)
     - details: Diagnostic info
     """
+    logger.info(f"[EARLY] ─────────────────────────────────────────────────")
+    logger.info(f"[EARLY] Checking early-stage opportunity for: {pair}")
+    logger.info(f"[EARLY]   LP Added: {lp_added_sol:.2f} SOL, LP Before: {lp_before_sol:.2f} SOL")
+    logger.info(f"[EARLY]   Is New Pool: {is_new_pool}")
+
     details = {
         "pair": pair,
         "lp_added_sol": lp_added_sol,
@@ -123,34 +130,45 @@ def check_early_stage_opportunity(
 
     # Rule 1: Pair type - must be TOKEN/SOL
     if "/" not in pair:
+        logger.info(f"[EARLY] ❌ Rule 1 FAIL: Invalid pair format (no /)")
         details["checks"].append({"rule": "Pair format", "status": "FAIL", "reason": "Invalid format"})
         return False, should_log, details
 
     quote = pair.split("/")[1].upper()
     if quote != "SOL":
+        logger.info(f"[EARLY] ❌ Rule 1 FAIL: Not SOL pair (quote={quote})")
         details["checks"].append({"rule": "Pair type", "status": "FAIL", "reason": f"Not SOL pair ({quote})"})
         return False, should_log, details
 
+    logger.info(f"[EARLY] ✓ Rule 1 PASS: Valid TOKEN/SOL pair")
     details["checks"].append({"rule": "Pair type", "status": "PASS", "reason": "TOKEN/SOL"})
 
     # Get market data
+    logger.info(f"[EARLY] Fetching market data from DexScreener...")
     market_data = get_pair_market_data(pair, legacy_memes)
 
     if not market_data:
+        logger.info(f"[EARLY] ❌ Rule 2 SKIP: No market data available from DexScreener")
         details["checks"].append({"rule": "Market data", "status": "SKIP", "reason": "No data"})
         return False, should_log, details
 
     # Rule 2: Legacy meme exclusion
     if market_data.get("legacy_meme"):
+        logger.info(f"[EARLY] ❌ Rule 2 BLOCK: Legacy meme (hard exclusion list)")
         details["checks"].append({"rule": "Legacy meme", "status": "BLOCK", "reason": "Hard exclusion list"})
         return False, should_log, details
+
+    logger.info(f"[EARLY] ✓ Rule 2 PASS: Not a legacy meme")
 
     # Rule 3: Pair age - HARD GATES (using hard_reject thresholds)
     pair_age = market_data.get("pair_age_hours", 999)
     details["pair_age_hours"] = pair_age
 
+    logger.info(f"[EARLY] Rule 3: Checking pair age ({pair_age:.2f}h vs max {hard_reject_pair_age_hours}h)...")
+
     # Hard reject: Too old
     if pair_age > hard_reject_pair_age_hours:
+        logger.info(f"[EARLY] ❌ Rule 3 BLOCK: Too old ({pair_age:.1f}h > {hard_reject_pair_age_hours}h)")
         details["checks"].append({
             "rule": "Pair age (hard reject)",
             "status": "BLOCK",
@@ -173,6 +191,7 @@ def check_early_stage_opportunity(
         priority = "LOW"
 
     details["priority"] = priority
+    logger.info(f"[EARLY] ✓ Rule 3 PASS: Pair age {pair_age:.2f}h - Priority: {priority}")
 
     details["checks"].append({
         "rule": "Pair age",
@@ -184,13 +203,18 @@ def check_early_stage_opportunity(
     market_cap = market_data.get("market_cap", 0)
     details["market_cap"] = market_cap
 
+    logger.info(f"[EARLY] Rule 4: Checking market cap (${market_cap:,.0f} vs max ${hard_reject_market_cap:,.0f})...")
+
     if market_cap >= hard_reject_market_cap:
+        logger.info(f"[EARLY] ❌ Rule 4 BLOCK: Market cap too large (${market_cap/1e6:.1f}M >= ${hard_reject_market_cap/1e6:.0f}M)")
         details["checks"].append({
             "rule": "Market cap (hard reject)",
             "status": "BLOCK",
             "reason": f"Too large: ${market_cap/1_000_000:.0f}M ≥ ${hard_reject_market_cap/1_000_000:.0f}M (auto-ignored)"
         })
         return False, should_log, details
+
+    logger.info(f"[EARLY] ✓ Rule 4 PASS: Market cap ${market_cap/1e6:.2f}M within limit")
 
     details["checks"].append({
         "rule": "Market cap",
@@ -203,16 +227,22 @@ def check_early_stage_opportunity(
     is_near_zero = lp_before_sol <= hard_reject_baseline_liquidity
     is_significant = lp_added_sol >= min_lp_ignite_sol
 
+    logger.info(f"[EARLY] Rule 5: Near-zero ignition check...")
+    logger.info(f"[EARLY]   Baseline: {lp_before_sol:.2f} SOL (need ≤{hard_reject_baseline_liquidity} SOL) → {'✓' if is_near_zero else '❌'}")
+    logger.info(f"[EARLY]   Added: {lp_added_sol:.2f} SOL (need ≥{min_lp_ignite_sol} SOL) → {'✓' if is_significant else '❌'}")
+
     ignition_pass = is_near_zero and is_significant
     details["ignition_pass"] = ignition_pass
 
     if ignition_pass:
+        logger.info(f"[EARLY] ✓ Rule 5 PASS: Near-zero ignition confirmed!")
         details["checks"].append({
             "rule": "LP ignition",
             "status": "✅ PASS",
             "reason": f"Near-zero ignition: {lp_before_sol:.1f}SOL → +{lp_added_sol:.0f}SOL"
         })
     else:
+        logger.info(f"[EARLY] ❌ Rule 5 FAIL: Ignition criteria not met")
         details["checks"].append({
             "rule": "LP ignition",
             "status": "FAIL",
@@ -222,8 +252,12 @@ def check_early_stage_opportunity(
         # Don't alert yet, but log
         return False, should_log, details
 
-    # Rule 6: Multi-signal requirement
-    # Need 2+ momentum signals within window
+    # Rule 6: Multi-signal requirement (conditional)
+    # For NEW POOL CREATIONS: Skip multi-signal - pool creation IS the birth event
+    # For existing pools: Require 2+ momentum signals within window
+
+    logger.info(f"[EARLY] Rule 6: Multi-signal requirement check...")
+
     tracker = get_signal_tracker()
 
     # Add LP add signal
@@ -234,27 +268,55 @@ def check_early_stage_opportunity(
         details={"lp_added": lp_added_sol, "lp_before": lp_before_sol}
     )
 
-    should_alert = tracker.add_signal(signal)
-    signal_counts = tracker.get_signal_count(pair)
-
-    details["signal_counts"] = signal_counts
-
-    if should_alert:
+    # For new pools with near-zero baseline, alert immediately
+    # This IS the ignition event - no need to wait for confirmation
+    if is_new_pool or (lp_before_sol <= near_zero_baseline_sol and pair_age <= 1.0):
+        # New pool creation - this is the ignition signal
+        logger.info(f"[EARLY] ✓ Rule 6 BYPASS: New pool ignition event!")
+        logger.info(f"[EARLY]   is_new_pool={is_new_pool}, baseline={lp_before_sol:.2f} SOL, age={pair_age:.2f}h")
         details["checks"].append({
             "rule": "Multi-signal",
-            "status": "✅ PASS",
-            "reason": f"{signal_counts['total']} signals: {list(signal_counts['types'].keys())}"
+            "status": "✅ BYPASS",
+            "reason": f"New pool ignition (baseline: {lp_before_sol:.1f} SOL, age: {pair_age:.1f}h)"
         })
+        should_alert = True
+    elif not require_multi_signal:
+        # Multi-signal disabled - alert on single LP add
+        logger.info(f"[EARLY] ✓ Rule 6 DISABLED: Single-signal mode enabled")
+        details["checks"].append({
+            "rule": "Multi-signal",
+            "status": "✅ DISABLED",
+            "reason": "Single-signal mode enabled"
+        })
+        should_alert = True
     else:
-        details["checks"].append({
-            "rule": "Multi-signal",
-            "status": "WAIT",
-            "reason": f"Need 2+ signals, have {signal_counts['total']}: {list(signal_counts['types'].keys())}"
-        })
-        # Log but don't alert yet
-        return False, should_log, details
+        # Standard mode: require multi-signal confirmation
+        should_alert = tracker.add_signal(signal)
+        signal_counts = tracker.get_signal_count(pair)
+        details["signal_counts"] = signal_counts
+
+        if should_alert:
+            logger.info(f"[EARLY] ✓ Rule 6 PASS: Multi-signal confirmed ({signal_counts['total']} signals)")
+            details["checks"].append({
+                "rule": "Multi-signal",
+                "status": "✅ PASS",
+                "reason": f"{signal_counts['total']} signals: {list(signal_counts['types'].keys())}"
+            })
+        else:
+            logger.info(f"[EARLY] ⏳ Rule 6 WAIT: Need more signals ({signal_counts['total']}/2)")
+            details["checks"].append({
+                "rule": "Multi-signal",
+                "status": "WAIT",
+                "reason": f"Need 2+ signals, have {signal_counts['total']}: {list(signal_counts['types'].keys())}"
+            })
+            # Log but don't alert yet
+            return False, should_log, details
 
     # All checks passed - ready to alert!
+    logger.info(f"[EARLY] ═══════════════════════════════════════════════════════")
+    logger.info(f"[EARLY] 🚨 ALL CHECKS PASSED - SENDING ALERT!")
+    logger.info(f"[EARLY] ═══════════════════════════════════════════════════════")
+
     details["checks"].append({
         "rule": "FINAL",
         "status": "🚨 ALERT",

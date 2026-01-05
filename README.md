@@ -853,6 +853,94 @@ python scripts/profile.py switch aggressive --filter strict
 
 ---
 
+## 🔧 Technical Architecture
+
+### Real On-Chain LP Detection
+
+JournalTX uses **real on-chain data** from QuickNode WebSocket subscriptions - no simulations, no mocks.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    QUICKNODE (PRIMARY DATA SOURCE)                  │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│                                                                     │
+│  1. WebSocket → logsSubscribe(Raydium AMM Program)                  │
+│     └── Subscribes to: 675kPX9MHTjS2zt1qfSiQiLpKcM8cCtKxEbZqE8qiVJ  │
+│                                                                     │
+│  2. HTTP RPC → getTransaction(signature, jsonParsed)                │
+│     └── Fetches full transaction details                            │
+│                                                                     │
+│  3. Raydium Decoder → Parse instruction + account indices           │
+│     └── Identifies: initialize, deposit, withdraw, swap             │
+│                                                                     │
+│  4. Balance Delta Analysis → preBalances vs postBalances            │
+│     └── Calculates: SOL deposited, tokens added, LP minted          │
+│                                                                     │
+│  THIS IS REAL ON-CHAIN LP DETECTION                                 │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ENRICHMENT ONLY (FREE APIs)                     │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│                                                                     │
+│  Jupiter Token API → token_mint → symbol, name (FREE)               │
+│  Jupiter/CoinGecko Price API → SOL price in USD (FREE)              │
+│  DexScreener API → market cap, pair age for FILTERING (FREE)        │
+│                                                                     │
+│  These DO NOT detect LP - they only enrich the on-chain data        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+1. **QuickNode WebSocket** receives Raydium AMM program logs
+2. **Signature Extraction** from log notification
+3. **Deduplication** prevents double-processing
+4. **Transaction Fetch** via getTransaction RPC
+5. **Raydium Decoder** parses instruction type and accounts
+6. **Balance Delta Analysis** calculates actual liquidity change
+7. **Token Resolver** enriches with symbol/name from Jupiter
+8. **Early-Stage Filters** apply all rules
+9. **Telegram Alert** sent only if all checks pass
+
+### Key Detection Criteria
+
+An LP addition is detected ONLY IF:
+- ✅ Transaction involves Raydium AMM V4 program
+- ✅ Instruction is `initialize`, `initialize2`, or `deposit`
+- ✅ SOL balance in pool vault **INCREASED**
+- ✅ Token balance in pool vault **INCREASED**
+- ✅ SOL delta exceeds noise threshold (0.1 SOL)
+- ✅ Not a failed transaction (err == null)
+
+### Files Structure
+
+```
+journaltx/
+├── core/
+│   ├── config.py          # Configuration from JSON + .env
+│   ├── db.py              # SQLite database management
+│   └── models.py          # Alert, Trade, Journal models
+├── ingest/
+│   ├── quicknode/
+│   │   ├── raydium_decoder.py      # Raydium instruction parsing
+│   │   ├── raydium_subscriptions.py # WebSocket subscription format
+│   │   ├── transaction_parser.py    # Full LP event parsing
+│   │   ├── lp_events.py            # LP event processing
+│   │   └── volume_events.py        # Volume spike detection
+│   └── token_resolver.py   # Jupiter/DexScreener API integration
+├── filters/
+│   ├── early_meme.py      # Early-stage filtering rules
+│   └── signals.py         # Multi-signal tracking
+├── notify/
+│   └── telegram.py        # Telegram notification formatting
+└── guardrails/
+    └── rules.py           # Trading discipline rules
+```
+
+---
+
 ## ⚖️ Philosophy
 
 > **"This system exists to reduce activity, not increase it."**

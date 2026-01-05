@@ -208,23 +208,34 @@ Check risk/reward and rules first.</i>"""
 
         return message
 
-    def get_pair_urls(self, pair: str) -> dict:
+    def get_pair_urls(self, pair: str, token_mint: str = None, pool_address: str = None) -> dict:
         """
         Generate research URLs for a pair.
 
         Args:
             pair: Trading pair (e.g., "BONK/SOL")
+            token_mint: Token mint address (preferred for accurate URLs)
+            pool_address: Pool address for DexScreener
 
         Returns:
             Dict of URL names to URLs
         """
-        base_token = pair.split("/")[0].lower()
+        # Use token_mint if available (most accurate)
+        if token_mint:
+            return {
+                "dexscreener": f"https://dexscreener.com/solana/{pool_address or token_mint}",
+                "photon": f"https://photon-sol.tinyastro.io/en/lp/{token_mint}",
+                "birdeye": f"https://birdeye.so/token/{token_mint}?chain=solana",
+                "jupiter": f"https://jup.ag/swap/SOL-{token_mint}",
+            }
 
+        # Fallback to symbol-based search
+        base_token = pair.split("/")[0].lower()
         return {
             "dexscreener": f"https://dexscreener.com/solana/{base_token}",
             "photon": f"https://photon-sol.tinyastro.io/?token={base_token}",
             "birdeye": f"https://birdeye.so/token/{base_token}?chain=solana",
-            "jupiter": f"https://jup.ag/quote/SOL/{base_token}",  # Use jup.ag instead of jupiter.ag
+            "jupiter": f"https://jup.ag/quote/SOL/{base_token}",
         }
 
     def send_alert(self, alert: Alert) -> bool:
@@ -259,8 +270,12 @@ Check risk/reward and rules first.</i>"""
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         message = self._format_alert(alert)
 
-        # Get research URLs
-        urls = self.get_pair_urls(alert.pair)
+        # Get research URLs (use token_mint for accurate links)
+        urls = self.get_pair_urls(
+            alert.pair,
+            token_mint=alert.token_mint,
+            pool_address=alert.pool_address
+        )
 
         # Create inline keyboard with link buttons
         # Note: We can't add callback buttons yet because that requires
