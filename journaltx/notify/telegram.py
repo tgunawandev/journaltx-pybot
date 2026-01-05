@@ -5,7 +5,7 @@ Sends neutral, boring alerts to Telegram.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
@@ -28,6 +28,56 @@ class TelegramNotifier:
         self.bot_token = config.telegram_bot_token
         self.chat_id = config.telegram_chat_id
         self.timezone = ZoneInfo(config.timezone)
+
+    def _calculate_ignition_quality(self, alert: Alert) -> tuple[str, str]:
+        """
+        Calculate ignition quality based on LP before/after and pair age.
+
+        Returns:
+            Tuple of (emoji_label, description)
+
+        Rules:
+        🟢 Near-Zero → Real Commitment (Best)
+        🟡 Low → Moderate Ignition (Borderline)
+        🔴 Maintenance / Rotation (Ignore)
+        """
+        lp_before = alert.lp_sol_before if alert.lp_sol_before else 0
+        lp_added = alert.value_sol
+        pair_age = alert.pair_age_hours if alert.pair_age_hours else 99
+
+        # Calculate multiplier
+        if lp_before > 0:
+            multiplier = lp_added / lp_before
+        else:
+            multiplier = 999  # Infinite multiplier
+
+        # 🟢 Near-Zero → Real Commitment (Best)
+        # ALL must be true:
+        # - liquidity_before ≤ 8-10 SOL
+        # - lp_added ≥ 15× liquidity_before OR lp_added ≥ 150 SOL
+        # - pair_age ≤ 6 hours
+        if (lp_before <= 10 and
+            (multiplier >= 15 or lp_added >= 150) and
+            pair_age <= 6):
+            return "🟢", "Near-Zero → Real Commitment (Best)"
+
+        # 🟡 Low → Moderate Ignition (Borderline)
+        # ANY of these:
+        # - liquidity_before = 10-30 SOL
+        # - lp_added = 5-15× liquidity_before
+        # - pair_age = 6-12 hours
+        elif ((10 <= lp_before <= 30) or
+              (5 <= multiplier <= 15) or
+              (6 <= pair_age <= 12)):
+            return "🟡", "Low → Moderate Ignition (Borderline)"
+
+        # 🔴 Maintenance / Rotation (Ignore)
+        # ANY of these:
+        # - liquidity_before > 30-50 SOL
+        # - lp_added < 3-5× liquidity_before
+        # - pair_age > 12 hours
+        else:
+            return "🔴", "Maintenance / Rotation (Ignore)"
 
     def _get_market_info(self, pair: str) -> dict:
         """
@@ -116,12 +166,22 @@ class TelegramNotifier:
         lp_before = alert.lp_sol_before if alert.lp_sol_before else 0
         lp_after = alert.lp_sol_after if alert.lp_sol_after else (lp_before + alert.value_sol)
 
-        # Format time - just HH:MM WIB
-        local_time = alert.triggered_at.astimezone(self.timezone)
-        time_str = local_time.strftime("%H:%M %Z")
+        # Format time - include date and time in WIB
+        # Handle both naive and timezone-aware datetimes
+        if alert.triggered_at.tzinfo is None:
+            # Naive datetime - assume UTC
+            utc_time = alert.triggered_at.replace(tzinfo=timezone.utc)
+        else:
+            utc_time = alert.triggered_at
+
+        local_time = utc_time.astimezone(self.timezone)
+        time_str = local_time.strftime("%Y-%m-%d %H:%M %Z")
 
         # Early-stage check status
         early_stage_status = "✅ PASSED" if alert.early_stage_passed else "❌ FAILED"
+
+        # Calculate ignition quality
+        quality_emoji, quality_desc = self._calculate_ignition_quality(alert)
 
         # Mode badge - show TEST clearly
         mode_badge = f"🧪 {alert.mode} MODE" if alert.mode == "TEST" else f"🔴 {alert.mode} MODE"
@@ -131,16 +191,19 @@ class TelegramNotifier:
 
 <b>Type:</b> {type_name}
 <b>Pair:</b> {pair_display}
+
 <b>LP Added:</b> {lp_added_str}
-<b>Pair Age:</b> {pair_age_str}
 <b>Liquidity Before:</b> {lp_before:,.0f} SOL
 <b>Liquidity After:</b> {lp_after:,.0f} SOL
+<b>Pair Age:</b> {pair_age_str}
 <b>Time:</b> {time_str}
 
+<b>Ignition Quality:</b> {quality_emoji} {quality_desc}
 <b>Early-Stage Check:</b> {early_stage_status}
 
 <i>Reminder:
 This is NOT a trade signal.
+You have limited actions today.
 Check risk/reward and rules first.</i>"""
 
         return message
@@ -177,6 +240,12 @@ Check risk/reward and rules first.</i>"""
         # Check early-stage filter - ONLY send if passed
         if not alert.early_stage_passed:
             logger.info(f"Skipping Telegram {alert.pair}: early-stage check not passed yet (need 2+ signals)")
+            return False
+
+        # Check ignition quality - silently ignore 🔴 (Maintenance / Rotation)
+        quality_emoji, quality_desc = self._calculate_ignition_quality(alert)
+        if quality_emoji == "🔴":
+            logger.info(f"Skipping Telegram {alert.pair}: ignition quality is 🔴 Maintenance/Rotation - auto-ignored")
             return False
 
         # Check market cap filter (skip big established coins)
