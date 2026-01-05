@@ -11,6 +11,7 @@ from typing import Optional
 from journaltx.core.config import Config
 from journaltx.core.models import Alert, AlertType
 from journaltx.core.db import session_scope
+from journaltx.filters.early_meme import check_early_stage_rules
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,11 @@ def log_manual_alert(
     pair: str,
     value_sol: float,
     value_usd: Optional[float] = None,
+    lp_sol_before: Optional[float] = None,
+    pair_age_hours: Optional[float] = None,
 ) -> Alert:
     """
-    Manually log an alert.
+    Manually log an alert with early-stage filtering.
 
     Useful for testing or recording external observations.
     """
@@ -38,6 +41,20 @@ def log_manual_alert(
     if not normalized_type:
         raise ValueError(f"Invalid alert type: {alert_type}")
 
+    # Run early-stage filter check
+    lp_before = lp_sol_before if lp_sol_before is not None else 0.0
+    passed, filter_details = check_early_stage_rules(
+        pair=pair,
+        lp_added_sol=value_sol,
+        lp_before_sol=lp_before,
+        max_pair_age_hours=config.max_pair_age_hours,
+        min_sol_threshold=config.min_lp_sol_threshold,
+        small_baseline=config.small_baseline_sol,
+        max_market_cap=config.max_market_cap,
+    )
+
+    lp_sol_after = lp_before + value_sol
+
     # Create alert
     with session_scope(config) as session:
         alert = Alert(
@@ -46,6 +63,11 @@ def log_manual_alert(
             pair=pair.upper(),
             value_sol=value_sol,
             value_usd=value_usd,
+            lp_sol_before=lp_sol_before,
+            lp_sol_after=lp_sol_after,
+            pair_age_hours=pair_age_hours,
+            early_stage_passed=passed,
+            mode=config.mode,
             triggered_at=datetime.utcnow(),
         )
         session.add(alert)
@@ -57,9 +79,13 @@ def log_manual_alert(
         alert_pair = alert.pair
         alert_value_sol = alert.value_sol
         alert_value_usd = alert.value_usd
+        alert_lp_before = alert.lp_sol_before
+        alert_lp_after = alert.lp_sol_after
+        alert_pair_age = alert.pair_age_hours
+        alert_early_passed = alert.early_stage_passed
         alert_triggered_at = alert.triggered_at
 
-        logger.info(f"Manually logged alert: {alert}")
+        logger.info(f"Manually logged alert: {alert}, early-stage: {passed}")
 
     # Create a new Alert object outside the session context
     return Alert(
@@ -69,5 +95,10 @@ def log_manual_alert(
         pair=alert_pair,
         value_sol=alert_value_sol,
         value_usd=alert_value_usd,
+        lp_sol_before=alert_lp_before,
+        lp_sol_after=alert_lp_after,
+        pair_age_hours=alert_pair_age,
+        early_stage_passed=alert_early_passed,
         triggered_at=alert_triggered_at,
     )
+

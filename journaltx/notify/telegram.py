@@ -83,9 +83,7 @@ class TelegramNotifier:
 
     def _format_alert(self, alert: Alert) -> str:
         """
-        Format alert as HTML message.
-
-        Uses HTML formatting for better readability while keeping messages neutral.
+        Format alert as HTML message - Early-stage meme format.
         """
         # Format type
         type_names = {
@@ -95,69 +93,54 @@ class TelegramNotifier:
         }
         type_name = type_names.get(alert.type.value, alert.type.value)
 
-        # Format value - make it clearer what the amount represents
-        if alert.type.value == "lp_add":
-            if alert.value_usd:
-                value_str = f"<b>+{alert.value_sol:,.2f} SOL</b> (~${alert.value_usd:,.0f}) added to liquidity pool"
-            else:
-                value_str = f"<b>+{alert.value_sol:,.2f} SOL</b> added to liquidity pool"
-        elif alert.type.value == "lp_remove":
-            if alert.value_usd:
-                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> (~${alert.value_usd:,.0f}) removed from liquidity pool"
-            else:
-                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> removed from liquidity pool"
-        else:  # volume_spike
-            if alert.value_usd:
-                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> (~${alert.value_usd:,.0f}) trading volume"
-            else:
-                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> trading volume"
+        # Format LP added amount
+        if alert.value_usd:
+            lp_added_str = f"+{alert.value_sol:,.0f} SOL (~${alert.value_usd:,.0f})"
+        else:
+            lp_added_str = f"+{alert.value_sol:,.0f} SOL"
 
-        # Format time - show only local timezone (WIB)
+        # Get pair from alert
+        pair_display = alert.pair.replace("/", " / ")
+
+        # Format pair age
+        if alert.pair_age_hours:
+            if alert.pair_age_hours < 1:
+                age_minutes = int(alert.pair_age_hours * 60)
+                pair_age_str = f"{age_minutes} minutes"
+            else:
+                pair_age_str = f"{alert.pair_age_hours:,.0f} hours"
+        else:
+            pair_age_str = "Unknown"
+
+        # Format liquidity before/after
+        lp_before = alert.lp_sol_before if alert.lp_sol_before else 0
+        lp_after = alert.lp_sol_after if alert.lp_sol_after else (lp_before + alert.value_sol)
+
+        # Format time - just HH:MM WIB
         local_time = alert.triggered_at.astimezone(self.timezone)
-        time_str = local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+        time_str = local_time.strftime("%H:%M %Z")
 
-        # Fetch market info (as informational data)
-        market_info = self._get_market_info(alert.pair)
-        market_info_str = ""
-        if market_info:
-            mc = market_info.get("market_cap", 0)
-            liq = market_info.get("liquidity", 0)
-            age = market_info.get("pair_age", "Unknown")
+        # Early-stage check status
+        early_stage_status = "✅ PASSED" if alert.early_stage_passed else "❌ FAILED"
 
-            # Format market cap
-            if mc >= 1_000_000_000:
-                mc_str = f"${mc / 1_000_000_000:.1f}B"
-            elif mc >= 1_000_000:
-                mc_str = f"${mc / 1_000_000:.1f}M"
-            elif mc >= 1_000:
-                mc_str = f"${mc / 1_000:.0f}K"
-            else:
-                mc_str = f"${mc:,.0f}"
+        # Mode badge - show TEST clearly
+        mode_badge = f"🧪 {alert.mode} MODE" if alert.mode == "TEST" else f"🔴 {alert.mode} MODE"
 
-            # Format liquidity
-            if liq >= 1_000_000:
-                liq_str = f"${liq / 1_000_000:.1f}M"
-            elif liq >= 1_000:
-                liq_str = f"${liq / 1_000:.0f}K"
-            else:
-                liq_str = f"${liq:,.0f}"
-
-            market_info_str = f"""
-<b>Market Cap:</b> {mc_str}
-<b>Liquidity:</b> {liq_str}
-<b>Pair Age:</b> {age}"""
-
-        # Build message with HTML formatting
-        message = f"""<b>JournalTX Alert</b>
+        # Build message
+        message = f"""<b>🟡 JournalTX Alert [{mode_badge}]</b>
 
 <b>Type:</b> {type_name}
-<b>Pair:</b> {alert.pair}
-<b>Amount:</b> {value_str}
-<b>Time:</b> {time_str}{market_info_str}
+<b>Pair:</b> {pair_display}
+<b>LP Added:</b> {lp_added_str}
+<b>Pair Age:</b> {pair_age_str}
+<b>Liquidity Before:</b> {lp_before:,.0f} SOL
+<b>Liquidity After:</b> {lp_after:,.0f} SOL
+<b>Time:</b> {time_str}
 
-<i>Check DexScreener for holder count and liquidity details.</i>
+<b>Early-Stage Check:</b> {early_stage_status}
 
-<i>This is NOT a trade signal.
+<i>Reminder:
+This is NOT a trade signal.
 Check risk/reward and rules first.</i>"""
 
         return message

@@ -36,8 +36,14 @@ class Config:
     # Timezone
     timezone: str = "Asia/Jakarta"
 
-    # Early meme coin filters
-    max_market_cap: float = 1000000.0  # Ignore coins above this market cap
+    # Early-stage meme filters
+    max_market_cap: float = 20_000_000.0  # $20M - Auto-reject if above this
+    max_pair_age_hours: int = 24  # 24h - Auto-reject if older
+    min_lp_sol_threshold: float = 300.0  # Min SOL for LP ignition
+    small_baseline_sol: float = 20.0  # Max SOL baseline before LP
+
+    # Mode: LIVE or TEST
+    mode: str = "TEST"  # Default to TEST for safety
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -54,5 +60,9 @@ class Config:
             volume_spike_multiplier=float(os.getenv("VOLUME_SPIKE_MULTIPLIER", "3.0")),
             max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "2")),
             timezone=os.getenv("TIMEZONE", "Asia/Jakarta"),
-            max_market_cap=float(os.getenv("MAX_MARKET_CAP", "1000000.0")),
+            max_market_cap=float(os.getenv("MAX_MARKET_CAP", "20000000.0")),
+            max_pair_age_hours=int(os.getenv("MAX_PAIR_AGE_HOURS", "24")),
+            min_lp_sol_threshold=float(os.getenv("MIN_LP_SOL_THRESHOLD", "300.0")),
+            small_baseline_sol=float(os.getenv("SMALL_BASELINE_SOL", "20.0")),
+            mode=os.getenv("MODE", "TEST").upper(),
         )

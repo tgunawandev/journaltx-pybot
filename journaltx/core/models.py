@@ -114,6 +114,11 @@ class Alert(Base):
     pair: Mapped[str] = mapped_column(String(100), nullable=False)
     value_sol: Mapped[float] = mapped_column(Float, nullable=False)
     value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    lp_sol_before: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Liquidity before LP add
+    lp_sol_after: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # Liquidity after LP add
+    pair_age_hours: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Pair age in hours
+    early_stage_passed: Mapped[Optional[bool]] = mapped_column(Integer, nullable=True)  # Early-stage filter result
+    mode: Mapped[str] = mapped_column(String(10), default="LIVE")  # LIVE or TEST mode
     triggered_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, index=True
     )

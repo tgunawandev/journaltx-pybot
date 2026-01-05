@@ -26,18 +26,28 @@ def main(
     alert_type: str = typer.Option(..., "--type", "-t", help="Alert type (lp_add, lp_remove, volume_spike)"),
     pair: str = typer.Option(..., "--pair", "-p", help="Trading pair (e.g., BONK/SOL)"),
     sol: float = typer.Option(..., "--sol", "-s", help="SOL amount"),
+    lp_before: float = typer.Option(0.0, "--lp-before", help="Liquidity before LP add (SOL)"),
+    pair_age_hours: float = typer.Option(None, "--pair-age", help="Pair age in hours"),
 ):
     """
     Log a manual alert and send to Telegram.
 
     Example:
-        python scripts/alert.py --type lp_add --pair BONK/SOL --sol 1000
+        python scripts/alert.py --type lp_add --pair NEWCOIN/SOL --sol 420 --lp-before 3 --pair-age 0.3
     """
     load_dotenv()
     config = Config.from_env()
 
-    # Log alert
-    alert = log_manual_alert(config, alert_type, pair, sol, sol * 150.0)
+    # Log alert with new fields
+    alert = log_manual_alert(
+        config,
+        alert_type,
+        pair,
+        sol,
+        sol * 150.0,
+        lp_sol_before=lp_before,
+        pair_age_hours=pair_age_hours
+    )
 
     console.print(f"[green]✓ Alert logged: {alert.type.value} {pair} {sol} SOL[/green]")
 
