@@ -74,6 +74,16 @@ class Config:
     profile_template: str = "balanced"
     filter_template: str = "default"
 
+    # Trading automation
+    trading_enabled: bool = False
+    wallet_encryption_key: Optional[str] = None
+    trading_max_per_trade: float = 50.0
+    trading_daily_limit: float = 100.0
+    trading_weekly_limit: float = 300.0
+    trading_tiers: list = None  # Default: [10, 25, 50]
+    trading_slippage_bps: int = 100  # 1%
+    trading_priority_fee: int = 100000  # lamports
+
     @classmethod
     def _load_json(cls, json_path: Path) -> Dict[str, Any]:
         """Load JSON configuration file."""
@@ -164,6 +174,16 @@ class Config:
             # Template names
             profile_template=profile_name,
             filter_template=filter_name,
+
+            # Trading automation
+            trading_enabled=os.getenv("TRADING_ENABLED", "false").lower() == "true",
+            wallet_encryption_key=os.getenv("WALLET_ENCRYPTION_KEY"),
+            trading_max_per_trade=float(os.getenv("TRADING_MAX_PER_TRADE", "50")),
+            trading_daily_limit=float(os.getenv("TRADING_DAILY_LIMIT", "100")),
+            trading_weekly_limit=float(os.getenv("TRADING_WEEKLY_LIMIT", "300")),
+            trading_tiers=[int(x) for x in os.getenv("TRADING_TIERS", "10,25,50").split(",")],
+            trading_slippage_bps=int(os.getenv("TRADING_SLIPPAGE_BPS", "100")),
+            trading_priority_fee=int(os.getenv("TRADING_PRIORITY_FEE", "100000")),
         )
 
         return config

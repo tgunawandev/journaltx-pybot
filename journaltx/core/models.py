@@ -1,8 +1,7 @@
 """
 Database models for JournalTX.
 
-Three models only: Trade, Journal, Alert.
-Do not add more.
+Models: Trade, Journal, Alert, TelegramUser, BuyOrder.
 """
 
 from datetime import datetime
@@ -11,11 +10,13 @@ from enum import Enum
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum as SQLEnum,
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
 )
@@ -133,3 +134,89 @@ class Alert(Base):
 
     def __repr__(self) -> str:
         return f"<Alert {self.id}: {self.type.value} {self.pair} {self.value_sol} SOL>"
+
+
+class BuyOrderStatus(str, Enum):
+    """Status of a buy order."""
+    PENDING = "pending"
+    QUOTING = "quoting"
+    EXECUTING = "executing"
+    CONFIRMED = "confirmed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class TelegramUser(Base):
+    """
+    Registered Telegram user for trading.
+
+    Stores encrypted wallet and spending limits.
+    """
+
+    __tablename__ = "telegram_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telegram_user_id: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    telegram_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Encrypted wallet storage
+    encrypted_wallet: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    wallet_salt: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    wallet_pubkey: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Spending tracking
+    daily_spent_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    daily_reset_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    weekly_spent_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    weekly_reset_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_trade_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Relationship
+    buy_orders: Mapped[list["BuyOrder"]] = relationship(
+        "BuyOrder", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<TelegramUser {self.id}: @{self.telegram_username} pubkey={self.wallet_pubkey}>"
+
+
+class BuyOrder(Base):
+    """
+    Buy order execution log.
+
+    Records all buy attempts from Telegram callbacks.
+    """
+
+    __tablename__ = "buy_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("telegram_users.id"), nullable=False)
+    alert_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alerts.id"), nullable=True)
+
+    # Order details
+    tier: Mapped[str] = mapped_column(String(20), nullable=False)  # low/medium/high
+    amount_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    amount_sol: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    token_mint: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    # Execution
+    status: Mapped[BuyOrderStatus] = mapped_column(
+        SQLEnum(BuyOrderStatus), default=BuyOrderStatus.PENDING
+    )
+    tx_signature: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    tokens_received: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Timestamps
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Relationships
+    user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="buy_orders")
+
+    def __repr__(self) -> str:
+        return f"<BuyOrder {self.id}: {self.tier} ${self.amount_usd} {self.status.value}>"

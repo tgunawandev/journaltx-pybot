@@ -12,6 +12,11 @@ dependencies = [
     "websockets>=12.0",
     "python-dotenv>=1.0.0",
     "base58>=2.1.0",
+    # Trading automation
+    "python-telegram-bot>=21.0",  # Async Telegram bot with callbacks
+    "solders>=0.21.0",            # Solana keypairs/signing
+    "solana>=0.32.0",             # Solana RPC client
+    "cryptography>=41.0",         # AES-256-GCM encryption
 ]
 
 [project.optional-dependencies]

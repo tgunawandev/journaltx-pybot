@@ -45,6 +45,7 @@ from journaltx.ingest.quicknode.raydium_subscriptions import (
 )
 from journaltx.ingest.quicknode.transaction_parser import SolanaTransactionParser
 from journaltx.notify.telegram import TelegramNotifier
+from journaltx.notify.telegram_bot import TelegramBotHandler
 
 app = Typer(help="QuickNode WebSocket listener for Solana LP detection")
 console = Console()
@@ -427,6 +428,18 @@ def main(
     else:
         console.print("[yellow]Telegram not configured - alerts will only be logged[/yellow]")
 
+    # Initialize trading bot if enabled
+    telegram_bot = None
+    if config.trading_enabled and config.telegram_bot_token and config.wallet_encryption_key:
+        try:
+            telegram_bot = TelegramBotHandler(config)
+            console.print("[green]Trading automation enabled[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Trading bot init failed: {e}[/yellow]")
+            telegram_bot = None
+    elif config.trading_enabled:
+        console.print("[yellow]Trading enabled but missing config (WALLET_ENCRYPTION_KEY required)[/yellow]")
+
     # Handle graceful shutdown
     def signal_handler(sig, frame):
         console.print("\n[yellow]Shutting down...[/yellow]")
@@ -437,17 +450,33 @@ def main(
 
     # Run the listener
     provider_info = f"{listener.provider.capitalize()} WebSocket"
+    trading_info = "Trading: Enabled" if telegram_bot else "Trading: Disabled"
     console.print(Panel(
         "[bold]JournalTX - Real-Time Solana LP Monitor[/bold]\n\n"
         "Monitoring Raydium AMM for liquidity additions.\n"
         f"Detection: {provider_info} + Transaction Parsing\n"
-        "Enrichment: DexScreener + CoinGecko (metadata only)",
+        f"Enrichment: DexScreener + CoinGecko (metadata only)\n"
+        f"{trading_info}",
         title="Starting",
         border_style="blue"
     ))
 
+    # Run both listener and bot together
+    async def run_all():
+        tasks = [listener.connect_and_listen()]
+        if telegram_bot:
+            tasks.append(telegram_bot.start_polling())
+
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if telegram_bot:
+                await telegram_bot.stop()
+
     try:
-        asyncio.run(listener.connect_and_listen())
+        asyncio.run(run_all())
     except KeyboardInterrupt:
         pass
 

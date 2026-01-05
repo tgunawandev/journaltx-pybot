@@ -29,6 +29,8 @@ class TelegramNotifier:
         self.bot_token = config.telegram_bot_token
         self.chat_id = config.telegram_chat_id
         self.timezone = ZoneInfo(config.timezone)
+        self.trading_enabled = config.trading_enabled
+        self.trading_tiers = config.trading_tiers or [10, 25, 50]
 
     def _calculate_ignition_quality(self, alert: Alert) -> tuple[str, str]:
         """
@@ -274,21 +276,34 @@ Check risk/reward and rules first.</i>"""
             pool_address=alert.pool_address
         )
 
-        # Create inline keyboard with link buttons
-        # Note: We can't add callback buttons yet because that requires
-        # the bot to be running to handle callbacks. For now, just URL buttons.
-        reply_markup = {
-            "inline_keyboard": [
-                [
-                    {"text": "📊 DexScreener", "url": urls["dexscreener"]},
-                    {"text": "⚡ Photon", "url": urls["photon"]},
-                ],
-                [
-                    {"text": "🦅 Birdeye", "url": urls["birdeye"]},
-                    {"text": "🪐 Jupiter", "url": urls["jupiter"]},
-                ],
-            ]
-        }
+        # Build inline keyboard
+        keyboard_rows = []
+
+        # Add buy buttons if trading is enabled and we have token_mint
+        if self.trading_enabled and alert.token_mint:
+            tier_names = ["low", "medium", "high"]
+            buy_buttons = []
+            for i, tier_usd in enumerate(self.trading_tiers[:3]):
+                tier_name = tier_names[i] if i < len(tier_names) else "low"
+                callback_data = f"buy_{tier_name}_{alert.token_mint}_{alert.id}"
+                buy_buttons.append({"text": f"Buy ${tier_usd}", "callback_data": callback_data})
+            keyboard_rows.append(buy_buttons)
+
+            # Skip button
+            skip_callback = f"skip_{alert.token_mint}_{alert.id}"
+            keyboard_rows.append([{"text": "Skip", "callback_data": skip_callback}])
+
+        # Research link buttons
+        keyboard_rows.append([
+            {"text": "DexScreener", "url": urls["dexscreener"]},
+            {"text": "Photon", "url": urls["photon"]},
+        ])
+        keyboard_rows.append([
+            {"text": "Birdeye", "url": urls["birdeye"]},
+            {"text": "Jupiter", "url": urls["jupiter"]},
+        ])
+
+        reply_markup = {"inline_keyboard": keyboard_rows}
 
         try:
             response = requests.post(
