@@ -174,6 +174,11 @@ Check risk/reward and rules first.</i>"""
             logger.warning("Telegram not configured, skipping notification")
             return False
 
+        # Check early-stage filter - ONLY send if passed
+        if not alert.early_stage_passed:
+            logger.info(f"Skipping Telegram {alert.pair}: early-stage check not passed yet (need 2+ signals)")
+            return False
+
         # Check market cap filter (skip big established coins)
         market_info = self._get_market_info(alert.pair)
         if market_info:
