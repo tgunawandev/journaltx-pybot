@@ -148,12 +148,16 @@ class LPListener:
 
             result = data["params"]["result"]
 
+            # QuickNode logsNotification has nested structure:
+            # result.value.logs and result.value.err and result.value.signature
+            value = result.get("value", result)  # Fallback to result if no value
+
             # CHECK: Ignore failed transactions (err != null)
-            if result.get("err") is not None:
-                logger.info(f"[WS] ❌ Ignoring failed transaction: {result.get('err')}")
+            if value.get("err") is not None:
+                logger.info(f"[WS] ❌ Ignoring failed transaction: {value.get('err')}")
                 return
 
-            logs = result.get("logs", [])
+            logs = value.get("logs", [])
 
             if not logs:
                 return

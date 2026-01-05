@@ -107,6 +107,21 @@ def extract_signature_from_notification(notification: Dict[str, Any]) -> Optiona
     """
     Extract transaction signature from QuickNode notification.
 
+    QuickNode logsNotification structure:
+    {
+      "params": {
+        "result": {
+          "context": { "slot": 123 },
+          "value": {
+            "signature": "...",
+            "err": null,
+            "logs": [...]
+          }
+        },
+        "subscription": 123
+      }
+    }
+
     Args:
         notification: Raw notification from QuickNode
 
@@ -116,15 +131,22 @@ def extract_signature_from_notification(notification: Dict[str, Any]) -> Optiona
     try:
         result = notification.get("params", {}).get("result", {})
 
-        # Signature can be in different fields
+        # Check nested value structure first (QuickNode format)
+        value = result.get("value", {})
+        if value and "signature" in value:
+            return value["signature"]
+
+        # Fallback: Signature directly in result
         if "signature" in result:
             return result["signature"]
 
-        # Sometimes in nested structure
+        # Last resort: search recursively
         if isinstance(result, dict):
-            for key, value in result.items():
-                if "signature" in key.lower():
-                    return str(value)
+            for key, val in result.items():
+                if key.lower() == "signature" and isinstance(val, str):
+                    return val
+                if isinstance(val, dict) and "signature" in val:
+                    return val["signature"]
 
         return None
 
