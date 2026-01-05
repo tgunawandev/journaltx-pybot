@@ -18,14 +18,8 @@ from journaltx.filters.signals import Signal, get_signal_tracker
 
 logger = logging.getLogger(__name__)
 
-# Legacy meme exclusion list (hard block)
-LEGACY_MEMES = {
-    "BONK", "WIF", "DOGE", "SHIB", "PEPE", "FLOKI", "BABYDOGE",
-    "MOON", "SAMO", "KING", "MONKY"
-}
 
-
-def get_pair_market_data(pair: str) -> Optional[dict]:
+def get_pair_market_data(pair: str, legacy_memes: list = None) -> Optional[dict]:
     """
     Fetch market data from DexScreener.
 
@@ -35,7 +29,7 @@ def get_pair_market_data(pair: str) -> Optional[dict]:
         base_token = pair.split("/")[0].upper()
 
         # Check legacy list first
-        if base_token in LEGACY_MEMES:
+        if legacy_memes and base_token in legacy_memes:
             logger.info(f"[LEGACY] {pair} blocked: {base_token}")
             return {"legacy_meme": True}
 
@@ -98,10 +92,15 @@ def check_early_stage_opportunity(
     lp_added_sol: float,
     lp_before_sol: float = 0,
     max_pair_age_hours: int = 24,
+    preferred_pair_age_hours: int = 6,
     near_zero_baseline_sol: float = 10.0,
+    hard_reject_baseline_liquidity: float = 20.0,
+    hard_reject_pair_age_hours: int = 24,
+    hard_reject_market_cap: float = 20_000_000.0,
     min_lp_ignite_sol: float = 300.0,
     max_market_cap_defensive: float = 20_000_000.0,
     signal_window_minutes: int = 30,
+    legacy_memes: list = None,
 ) -> Tuple[bool, bool, dict]:
     """
     Check if this is an early-stage opportunity with momentum.
@@ -135,7 +134,7 @@ def check_early_stage_opportunity(
     details["checks"].append({"rule": "Pair type", "status": "PASS", "reason": "TOKEN/SOL"})
 
     # Get market data
-    market_data = get_pair_market_data(pair)
+    market_data = get_pair_market_data(pair, legacy_memes)
 
     if not market_data:
         details["checks"].append({"rule": "Market data", "status": "SKIP", "reason": "No data"})
@@ -146,47 +145,62 @@ def check_early_stage_opportunity(
         details["checks"].append({"rule": "Legacy meme", "status": "BLOCK", "reason": "Hard exclusion list"})
         return False, should_log, details
 
-    # Rule 3: Pair age - HARD GATE (max 24h)
+    # Rule 3: Pair age - HARD GATES (using hard_reject thresholds)
     pair_age = market_data.get("pair_age_hours", 999)
     details["pair_age_hours"] = pair_age
 
-    if pair_age > max_pair_age_hours:
+    # Hard reject: Too old
+    if pair_age > hard_reject_pair_age_hours:
         details["checks"].append({
-            "rule": "Pair age",
-            "status": "FAIL",
-            "reason": f"Too old: {pair_age:.1f}h > {max_pair_age_hours}h"
+            "rule": "Pair age (hard reject)",
+            "status": "BLOCK",
+            "reason": f"Too old: {pair_age:.1f}h > {hard_reject_pair_age_hours}h (auto-ignored)"
         })
         return False, should_log, details
 
-    age_status = "✅" if pair_age <= 6 else "PASS"
+    # Check age status for priority tagging
+    if pair_age <= 0.5:  # <30 min
+        age_status = "🔥 HIGH (golden window)"
+        priority = "HIGH"
+    elif pair_age <= 2.0:  # <2 hours
+        age_status = "⚡ MEDIUM (early discovery)"
+        priority = "MEDIUM"
+    elif pair_age <= preferred_pair_age_hours:  # <6 hours (sweet spot)
+        age_status = "✅ LOW (sweet spot)"
+        priority = "LOW"
+    else:  # 6-24 hours
+        age_status = "✅ VALID (late window)"
+        priority = "LOW"
+
+    details["priority"] = priority
+
     details["checks"].append({
         "rule": "Pair age",
         "status": age_status,
         "reason": f"{pair_age:.1f}h old"
     })
 
-    # Rule 4: Market cap - DEFENSIVE ONLY (exclude late-stage coins)
-    # Use ONLY to reject big coins, NEVER as entry signal
+    # Rule 4: Market cap - HARD REJECT using hard_reject threshold
     market_cap = market_data.get("market_cap", 0)
     details["market_cap"] = market_cap
 
-    if market_cap >= max_market_cap_defensive:
+    if market_cap >= hard_reject_market_cap:
         details["checks"].append({
-            "rule": "Market cap (defensive)",
-            "status": "FAIL",
-            "reason": f"Too large: ${market_cap/1_000_000:.0f}M (excludes late-stage)"
+            "rule": "Market cap (hard reject)",
+            "status": "BLOCK",
+            "reason": f"Too large: ${market_cap/1_000_000:.0f}M ≥ ${hard_reject_market_cap/1_000_000:.0f}M (auto-ignored)"
         })
         return False, should_log, details
 
     details["checks"].append({
-        "rule": "Market cap (defensive)",
+        "rule": "Market cap",
         "status": "PASS",
-        "reason": f"${market_cap/1_000_000:.2f}M (not excluded)"
+        "reason": f"${market_cap/1_000_000:.2f}M (within limit)"
     })
 
-    # Rule 5: Near-zero ignition check
+    # Rule 5: Near-zero ignition check (using hard_reject baseline)
     # LP must come from near-zero baseline AND significant addition
-    is_near_zero = lp_before_sol <= near_zero_baseline_sol
+    is_near_zero = lp_before_sol <= hard_reject_baseline_liquidity
     is_significant = lp_added_sol >= min_lp_ignite_sol
 
     ignition_pass = is_near_zero and is_significant
@@ -202,7 +216,7 @@ def check_early_stage_opportunity(
         details["checks"].append({
             "rule": "LP ignition",
             "status": "FAIL",
-            "reason": f"Baseline: {lp_before_sol:.1f}SOL (need ≤{near_zero_baseline_sol}), "
+            "reason": f"Baseline: {lp_before_sol:.1f}SOL (need ≤{hard_reject_baseline_liquidity}), "
                      f"Added: {lp_added_sol:.0f}SOL (need ≥{min_lp_ignite_sol})"
         })
         # Don't alert yet, but log

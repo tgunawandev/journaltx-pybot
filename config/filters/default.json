@@ -1,0 +1,44 @@
+{
+  "_comment": "Default early-stage filter for JournalTX. Designed to detect liquidity ignition on new Solana meme tokens while silently excluding late, popular, or maintenance activity.",
+
+  "name": "Default Early-Stage Filters",
+  "description": "Strict early-stage filters focused on liquidity ignition, not popularity",
+
+  "max_market_cap": 8000000.0,
+  "_comment_max_market_cap": "Soft defensive ceiling. Tokens above ~$8M market cap are usually no longer early and are likely already crowded.",
+
+  "max_pair_age_hours": 24,
+  "_comment_max_pair_age_hours": "Hard upper limit for early-stage detection. Pairs older than 24h are considered late and ignored.",
+
+  "preferred_pair_age_hours": 6,
+  "_comment_preferred_pair_age_hours": "Freshness preference. Pairs under 6h old are prioritized as true early-stage opportunities.",
+
+  "signal_window_minutes": 30,
+  "_comment_signal_window_minutes": "Time window in which multiple signals must occur to confirm real momentum instead of isolated events.",
+
+  "hard_reject_if": {
+    "pair_age_hours_gt": 24,
+    "_comment_pair_age_hours_gt": "Absolute rejection rule. If pair age exceeds 24h, the token is no longer early and must not alert.",
+
+    "market_cap_usd_gte": 20000000,
+    "_comment_market_cap_usd_gte": "Hard exclusion for large tokens. >=$20M market cap indicates late-stage or already-distributed assets.",
+
+    "baseline_liquidity_sol_gt": 20,
+    "_comment_baseline_liquidity_sol_gt": "Rejects pools that already had significant liquidity before the event. Prevents maintenance LP or rotation from triggering alerts."
+  },
+
+  "legacy_memes": [
+    "BONK",
+    "WIF",
+    "DOGE",
+    "SHIB",
+    "PEPE",
+    "FLOKI",
+    "BABYDOGE",
+    "MOON",
+    "SAMO",
+    "KING",
+    "MONKY"
+  ],
+  "_comment_legacy_memes": "Explicit blacklist of well-known or legacy memes. These assets are not early-stage and should never trigger discovery alerts."
+}

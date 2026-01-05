@@ -1,0 +1,53 @@
+{
+  "_comment": "Conservative profile for high-quality, low-frequency trading. Only the best opportunities.",
+  "name": "Conservative",
+  "description": "High-quality LP additions, lowest frequency, maximum discipline",
+
+  "filters": {
+    "_comment": "Strict defensive layer: only the most significant liquidity events",
+
+    "lp_add_min_sol": 500.0,
+    "_comment_lp_add_min_sol": "Minimum SOL added to LP (~$75k). Only serious commitments.",
+
+    "lp_add_min_usd": 75000.0,
+    "_comment_lp_add_min_usd": "USD equivalent at $150/SOL for sanity checking.",
+
+    "lp_remove_min_pct": 70.0,
+    "_comment_lp_remove_min_pct": "LP removal >=70% is almost certainly a rug or total failure.",
+
+    "volume_spike_multiplier": 5.0,
+    "_comment_volume_spike_multiplier": "Strong momentum confirmation required.",
+
+    "max_actions_per_day": 1,
+    "_comment_max_actions_per_day": "One decision per day forces extreme selectivity."
+  },
+
+  "early_stage": {
+    "_comment": "Strict offensive logic: only clear early-stage opportunities",
+
+    "near_zero_baseline_sol": 5.0,
+    "_comment_near_zero_baseline_sol": "Very low baseline - must be true birth stage.",
+
+    "min_lp_ignite_sol": 500.0,
+    "_comment_min_lp_ignite_sol": "LP addition must be substantial and meaningful.",
+
+    "signal_window_minutes": 60,
+    "_comment_signal_window_minutes": "Longer window requires sustained momentum (60 min).",
+
+    "require_multi_signal": true,
+    "_comment_require_multi_signal": "Single events are not enough.",
+
+    "min_signals_required": 2,
+    "_comment_min_signals_required": "Multiple signals required for confirmation."
+  },
+
+  "auto_ignore": {
+    "_comment": "Aggressive silent rejection to maintain quality",
+
+    "pair_age_hours_gt": 6,
+    "_comment_pair_age_hours_gt": "Only very fresh opportunities (<6h).",
+
+    "market_cap_usd_gt": 5000000,
+    "_comment_market_cap_usd_gt": "Exclude anything over $5M - only the earliest stage."
+  }
+}

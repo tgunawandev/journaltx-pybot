@@ -1,0 +1,53 @@
+{
+  "_comment": "⚠️ EXPERIMENTAL - Degens Only profile. Contradicts core philosophy. Use at your own risk.",
+  "name": "Degens Only",
+  "description": "⚠️ EXPERIMENTAL - Maximum alerts, high risk, contradicts philosophy",
+
+  "filters": {
+    "_comment": "Minimal defensive layer: you see everything, you decide what's valid",
+
+    "lp_add_min_sol": 50.0,
+    "_comment_lp_add_min_sol": "Very low threshold - catches everything including tiny launches.",
+
+    "lp_add_min_usd": 7500.0,
+    "_comment_lp_add_min_usd": "USD equivalent at $150/SOL.",
+
+    "lp_remove_min_pct": 20.0,
+    "_comment_lp_remove_min_pct": "Even small liquidity removals trigger alerts.",
+
+    "volume_spike_multiplier": 1.5,
+    "_comment_volume_spike_multiplier": "Very low threshold - almost any movement triggers.",
+
+    "max_actions_per_day": 10,
+    "_comment_max_actions_per_day": "High limit - you must have extreme discipline."
+  },
+
+  "early_stage": {
+    "_comment": "Minimal offensive logic: almost everything passes through",
+
+    "near_zero_baseline_sol": 20.0,
+    "_comment_near_zero_baseline_sol": "Higher baseline - allows tokens that already have some liquidity.",
+
+    "min_lp_ignite_sol": 50.0,
+    "_comment_min_lp_ignite_sol": "Low threshold - small LP additions considered valid.",
+
+    "signal_window_minutes": 10,
+    "_comment_signal_window_minutes": "Very short window - rapid signal confirmation.",
+
+    "require_multi_signal": false,
+    "_comment_require_multi_signal": "Multi-signal requirement disabled for maximum alerts.",
+
+    "min_signals_required": 1,
+    "_comment_min_signals_required": "Single signal is enough - noisy but comprehensive."
+  },
+
+  "auto_ignore": {
+    "_comment": "Minimal silent rejection - almost everything gets through",
+
+    "pair_age_hours_gt": 48,
+    "_comment_pair_age_hours_gt": "Only ignore tokens older than 48h (very permissive).",
+
+    "market_cap_usd_gt": 50000000,
+    "_comment_market_cap_usd_gt": "Only ignore if over $50M (very permissive)."
+  }
+}

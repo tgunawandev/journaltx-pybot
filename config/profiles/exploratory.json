@@ -1,0 +1,53 @@
+{
+  "_comment": "Exploratory profile for early-stage Solana meme discovery. Focused on real liquidity ignition with low noise.",
+  "name": "Exploratory",
+  "description": "Early discovery mode with strict ignition and limited daily decisions",
+
+  "filters": {
+    "_comment": "First defensive layer: filters obvious noise and limits daily decision fatigue",
+
+    "lp_add_min_sol": 150.0,
+    "_comment_lp_add_min_sol": "Minimum SOL added to LP (~$22k). Filters out dev tests and low-effort launches.",
+
+    "lp_add_min_usd": 22000.0,
+    "_comment_lp_add_min_usd": "USD equivalent at $150/SOL for sanity checking.",
+
+    "lp_remove_min_pct": 40.0,
+    "_comment_lp_remove_min_pct": "LP removal >=40% is a strong rug / failure warning.",
+
+    "volume_spike_multiplier": 2.5,
+    "_comment_volume_spike_multiplier": "Early attention ignition threshold; lower is noisy, higher misses early moves.",
+
+    "max_actions_per_day": 3,
+    "_comment_max_actions_per_day": "Hard cap on decisions per day to prevent overtrading."
+  },
+
+  "early_stage": {
+    "_comment": "Offensive logic: defines what 'early-stage ignition' means",
+
+    "near_zero_baseline_sol": 8.0,
+    "_comment_near_zero_baseline_sol": "Baseline liquidity below this is considered near-zero (birth stage).",
+
+    "min_lp_ignite_sol": 150.0,
+    "_comment_min_lp_ignite_sol": "LP added must be meaningful relative to near-zero baseline.",
+
+    "signal_window_minutes": 20,
+    "_comment_signal_window_minutes": "Signals must cluster quickly or interest is weak.",
+
+    "require_multi_signal": true,
+    "_comment_require_multi_signal": "Single events lie; require persistence.",
+
+    "min_signals_required": 2,
+    "_comment_min_signals_required": "LP + volume (or pressure) is minimum confirmation."
+  },
+
+  "auto_ignore": {
+    "_comment": "Silent rejection rules to protect focus",
+
+    "pair_age_hours_gt": 12,
+    "_comment_pair_age_hours_gt": "After 12h information is no longer asymmetric.",
+
+    "market_cap_usd_gt": 10000000,
+    "_comment_market_cap_usd_gt": "Exclude crowded trades; market cap used only defensively."
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "_comment": "Balanced profile for regular trading with moderate alert frequency.",
+  "name": "Balanced",
+  "description": "Balanced alert frequency and trade opportunities for consistent traders",
+
+  "filters": {
+    "_comment": "Middle ground defensive layer: reasonable filters without being too restrictive",
+
+    "lp_add_min_sol": 300.0,
+    "_comment_lp_add_min_sol": "Minimum SOL added to LP (~$45k). Good balance.",
+
+    "lp_add_min_usd": 45000.0,
+    "_comment_lp_add_min_usd": "USD equivalent at $150/SOL for sanity checking.",
+
+    "lp_remove_min_pct": 50.0,
+    "_comment_lp_remove_min_pct": "LP removal >=50% is concerning and worth noting.",
+
+    "volume_spike_multiplier": 3.0,
+    "_comment_volume_spike_multiplier": "Standard 3x volume spike for momentum confirmation.",
+
+    "max_actions_per_day": 2,
+    "_comment_max_actions_per_day": "Two decisions per day allows flexibility while preventing overtrading."
+  },
+
+  "early_stage": {
+    "_comment": "Balanced offensive logic: reasonable early-stage requirements",
+
+    "near_zero_baseline_sol": 10.0,
+    "_comment_near_zero_baseline_sol": "Standard near-zero baseline threshold.",
+
+    "min_lp_ignite_sol": 300.0,
+    "_comment_min_lp_ignite_sol": "LP addition must be significant.",
+
+    "signal_window_minutes": 30,
+    "_comment_signal_window_minutes": "Standard 30-minute signal window.",
+
+    "require_multi_signal": true,
+    "_comment_require_multi_signal": "Multi-signal confirmation required.",
+
+    "min_signals_required": 2,
+    "_comment_min_signals_required": "At least 2 different signal types."
+  },
+
+  "auto_ignore": {
+    "_comment": "Moderate silent rejection rules",
+
+    "pair_age_hours_gt": 18,
+    "_comment_pair_age_hours_gt": "After 18h opportunities are less attractive.",
+
+    "market_cap_usd_gt": 15000000,
+    "_comment_market_cap_usd_gt": "Exclude anything over $15M - still early but not earliest."
+  }
+}

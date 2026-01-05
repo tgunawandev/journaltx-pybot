@@ -48,9 +48,15 @@ def log_manual_alert(
         lp_added_sol=value_sol,
         lp_before_sol=lp_before,
         max_pair_age_hours=config.max_pair_age_hours,
-        near_zero_baseline_sol=config.small_baseline_sol,
+        preferred_pair_age_hours=config.preferred_pair_age_hours,
+        near_zero_baseline_sol=config.near_zero_baseline_sol,
+        hard_reject_baseline_liquidity=config.hard_reject_baseline_liquidity_sol,
+        hard_reject_pair_age_hours=config.hard_reject_pair_age_hours,
+        hard_reject_market_cap=config.hard_reject_market_cap_usd,
         min_lp_ignite_sol=config.min_lp_sol_threshold,
         max_market_cap_defensive=config.max_market_cap,
+        signal_window_minutes=config.signal_window_minutes,
+        legacy_memes=config.legacy_memes,
     )
 
     # Log the filtering result

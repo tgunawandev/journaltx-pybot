@@ -2,158 +2,145 @@
 """
 Profile management CLI.
 
-Manage threshold profiles for different trading styles.
+View and switch between trading profiles.
 """
 
 import sys
+import re
 from pathlib import Path
 
-# Add parent directory to path
+# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import typer
-from rich.console import Console
-from rich.table import Table
 
-from journaltx.core.config import Config
-from journaltx.core.profiles import ProfileManager, BUILT_IN_PROFILES
+app = typer.Typer(help="JournalTX Profile Management")
 
-app = typer.Typer(help="Manage threshold profiles")
-console = Console()
+
+@app.command()
+def current():
+    """Show current profile settings."""
+    from dotenv import load_dotenv
+    from journaltx.core.config import Config
+
+    load_dotenv()
+    config = Config.from_env()
+
+    typer.echo(config.get_filter_summary())
 
 
 @app.command()
 def list():
     """List all available profiles."""
-    manager = ProfileManager()
-    profiles = manager.list_profiles()
+    from journaltx.core.config import Config
 
-    console.print("\n[bold]Available Profiles:[/bold]\n")
+    profiles_dir = Path("config/profiles")
+    filters_dir = Path("config/filters")
 
-    table = Table(show_header=True, header_style="bold cyan")
-    table.add_column("Name", style="cyan")
-    table.add_column("Description")
-    table.add_column("LP Min (SOL)", justify="right")
-    table.add_column("LP Min ($)", justify="right")
-    table.add_column("Max Trades/Day", justify="right")
+    typer.secho("\n📊 Available Profiles:", bold=True)
+    typer.echo("─" * 50)
 
-    for p in profiles:
-        # Mark built-in profiles
-        name_mark = f"{p.name} *" if p.name in BUILT_IN_PROFILES else p.name
-        table.add_row(
-            name_mark,
-            p.description,
-            f"{p.lp_add_min_sol:,.0f}",
-            f"${p.lp_add_min_usd:,.0f}",
-            str(p.max_trades_per_day),
-        )
+    for profile_file in sorted(profiles_dir.glob("*.json")):
+        profile_name = profile_file.stem
+        try:
+            profile_data = Config._load_json(profile_file)
+            name = profile_data.get("name", profile_name)
+            desc = profile_data.get("description", "")
+            filters = profile_data.get("filters", {})
 
-    console.print(table)
-    console.print("\n[dim]* Built-in profile[/dim]")
+            typer.echo(f"\n{profile_name}")
+            typer.echo(f"  Name: {name}")
+            typer.echo(f"  Description: {desc}")
+            typer.echo(f"  LP Min: {filters.get('lp_add_min_sol', 0):,.0f} SOL (~${filters.get('lp_add_min_usd', 0):,.0f})")
+            typer.echo(f"  Max Trades/Day: {filters.get('max_trades_per_day', 0)}")
+        except Exception as e:
+            typer.echo(f"\n{profile_name} (error loading: {e})")
+
+    typer.secho("\n\n🔍 Available Filters:", bold=True)
+    typer.echo("─" * 50)
+
+    for filter_file in sorted(filters_dir.glob("*.json")):
+        filter_name = filter_file.stem
+        try:
+            filter_data = Config._load_json(filter_file)
+            name = filter_data.get("name", filter_name)
+            desc = filter_data.get("description", "")
+            max_mc = filter_data.get("max_market_cap", 0)
+            legacy = filter_data.get("legacy_memes", [])
+
+            typer.echo(f"\n{filter_name}")
+            typer.echo(f"  Name: {name}")
+            typer.echo(f"  Description: {desc}")
+            typer.echo(f"  Max Market Cap: ${max_mc/1_000_000:,.0f}M")
+            typer.echo(f"  Legacy Memes Excluded: {len(legacy)}")
+        except Exception as e:
+            typer.echo(f"\n{filter_name} (error loading: {e})")
+
+    typer.echo("\n")
 
 
 @app.command()
 def switch(
-    profile_name: str = typer.Argument(..., help="Profile name to switch to"),
+    profile: str = typer.Argument(..., help="Profile name (conservative, balanced, aggressive, degens_only)"),
+    filter: str = typer.Option(None, help="Filter name (default, or custom)"),
 ):
-    """
-    Switch active profile.
+    """Switch to a different profile (updates .env file)."""
+    from dotenv import load_dotenv
 
-    Updates JOURNALTX_PROFILE in .env file.
-    """
-    manager = ProfileManager()
+    load_dotenv()
+    env_path = Path(".env")
 
-    try:
-        profile = manager.get_profile(profile_name)
+    if not env_path.exists():
+        typer.secho("Error: .env file not found!", fg=typer.colors.RED)
+        raise typer.Exit(1)
 
-        # Update .env file
-        env_path = Path(__file__).parent.parent / ".env"
-        env_lines = env_path.read_text().splitlines()
+    # Validate profile exists
+    profile_path = Path(f"config/profiles/{profile}.json")
+    if not profile_path.exists():
+        typer.secho(f"Error: Profile '{profile}' not found!", fg=typer.colors.RED)
+        typer.echo("Run: python scripts/profile.py list")
+        raise typer.Exit(1)
 
-        # Update or add JOURNALTX_PROFILE
-        updated = []
-        profile_updated = False
+    # Read .env
+    content = env_path.read_text()
 
-        for line in env_lines:
-            if line.startswith("JOURNALTX_PROFILE="):
-                updated.append(f'JOURNALTX_PROFILE={profile_name}')
-                profile_updated = True
-            else:
-                updated.append(line)
+    # Update PROFILE_TEMPLATE
+    if "PROFILE_TEMPLATE=" in content:
+        content = re.sub(r"PROFILE_TEMPLATE=.*", f"PROFILE_TEMPLATE={profile}", content)
+    else:
+        content += f"\nPROFILE_TEMPLATE={profile}\n"
 
-        if not profile_updated:
-            updated.append(f'JOURNALTX_PROFILE={profile_name}')
+    # Update FILTER_TEMPLATE if provided
+    if filter:
+        filter_path = Path(f"config/filters/{filter}.json")
+        if not filter_path.exists():
+            typer.secho(f"Error: Filter '{filter}' not found!", fg=typer.colors.RED)
+            typer.echo("Run: python scripts/profile.py list")
+            raise typer.Exit(1)
 
-        env_path.write_text("\n".join(updated))
+        if "FILTER_TEMPLATE=" in content:
+            content = re.sub(r"FILTER_TEMPLATE=.*", f"FILTER_TEMPLATE={filter}", content)
+        else:
+            content += f"FILTER_TEMPLATE={filter}\n"
 
-        console.print(f"\n[green]✓ Switched to profile: {profile_name}[/green]\n")
-        console.print(f"[bold]{profile.description}[/bold]\n")
-        console.print("Thresholds:")
-        console.print(f"  • LP Add Min: {profile.lp_add_min_sol:,.0f} SOL (~${profile.lp_add_min_usd:,.0f})")
-        console.print(f"  • LP Remove Min: {profile.lp_remove_min_pct:.0f}%")
-        console.print(f"  • Volume Spike: {profile.volume_spike_multiplier}x baseline")
-        console.print(f"  • Max Trades/Day: {profile.max_trades_per_day}\n")
-        console.print("Restart the listener to apply changes.")
+    # Write back
+    env_path.write_text(content)
 
-    except ValueError as e:
-        console.print(f"\n[red]✗ {e}[/red]")
-        console.print("\nRun: [bold]journaltx-profile list[/bold] to see available profiles")
+    # Update environment variables so Config.from_env() sees the new values
+    import os
+    os.environ["PROFILE_TEMPLATE"] = profile
+    if filter:
+        os.environ["FILTER_TEMPLATE"] = filter
 
+    typer.secho(f"✓ Switched to profile: {profile}", fg=typer.colors.GREEN)
+    if filter:
+        typer.secho(f"✓ Switched to filter: {filter}", fg=typer.colors.GREEN)
 
-@app.command()
-def current():
-    """Show currently active profile."""
-    manager = ProfileManager()
-    active_name = manager.get_active_profile_name()
-
-    try:
-        profile = manager.get_profile(active_name)
-
-        console.print(f"\n[bold]Active Profile:[/bold] {profile.name}\n")
-        console.print(f"{profile.description}\n")
-        console.print("Thresholds:")
-        console.print(f"  • LP Add Min: {profile.lp_add_min_sol:,.0f} SOL (~${profile.lp_add_min_usd:,.0f})")
-        console.print(f"  • LP Remove Min: {profile.lp_remove_min_pct:.0f}%")
-        console.print(f"  • Volume Spike: {profile.volume_spike_multiplier}x baseline")
-        console.print(f"  • Max Trades/Day: {profile.max_trades_per_day}\n")
-
-    except ValueError as e:
-        console.print(f"\n[red]✗ {e}[/red]")
-
-
-@app.command()
-def create(
-    name: str = typer.Option(..., "--name", "-n", help="Profile name"),
-    description: str = typer.Option(..., "--description", "-d", help="Profile description"),
-    min_sol: float = typer.Option(500.0, "--min-sol", help="Min SOL for LP add"),
-    min_usd: float = typer.Option(10000.0, "--min-usd", help="Min USD for LP add"),
-    remove_pct: float = typer.Option(50.0, "--remove-pct", help="Min % for LP remove"),
-    volume_mult: float = typer.Option(3.0, "--volume-mult", help="Volume spike multiplier"),
-    max_trades: int = typer.Option(2, "--max-trades", help="Max trades per day"),
-):
-    """
-    Create a custom profile.
-    """
-    manager = ProfileManager()
-
-    try:
-        profile = manager.create_profile(
-            name=name,
-            description=description,
-            lp_add_min_sol=min_sol,
-            lp_add_min_usd=min_usd,
-            lp_remove_min_pct=remove_pct,
-            volume_spike_multiplier=volume_mult,
-            max_trades_per_day=max_trades,
-        )
-
-        console.print(f"\n[green]✓ Created profile: {name}[/green]\n")
-        console.print(f"{description}\n")
-        console.print("To use this profile:")
-        console.print(f"  [bold]journaltx-profile switch {name}[/bold]")
-
-    except Exception as e:
-        console.print(f"\n[red]✗ Failed to create profile: {e}[/red]")
+    typer.echo("\nNew settings:")
+    # Reload config to show new settings
+    from journaltx.core.config import Config
+    config = Config.from_env()
+    typer.echo(config.get_filter_summary())
 
 
 if __name__ == "__main__":
