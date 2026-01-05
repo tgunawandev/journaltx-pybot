@@ -137,6 +137,20 @@ class LPListener:
         try:
             data = json.loads(ws_message)
 
+            # Handle RPC errors (rate limit, auth, etc.)
+            if "error" in data:
+                error = data["error"]
+                error_code = error.get("code", 0)
+                error_msg = error.get("message", "Unknown error")
+                if error_code == -32003:  # Rate limit
+                    logger.error(f"[WS] ⚠️ QuickNode rate limit reached: {error_msg}")
+                    console.print(f"[bold red]RATE LIMIT: {error_msg}[/bold red]")
+                    # Set longer reconnect delay for rate limit
+                    self.reconnect_delay = 60
+                else:
+                    logger.error(f"[WS] ⚠️ RPC Error ({error_code}): {error_msg}")
+                return
+
             # Handle subscription confirmations
             if "result" in data and isinstance(data["result"], int):
                 logger.info(f"[WS] ✓ Subscription confirmed: ID {data['result']}")
