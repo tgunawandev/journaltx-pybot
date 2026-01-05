@@ -201,6 +201,11 @@ class TokenResolver:
         Returns:
             PairInfo or None
         """
+        # Validate pair_address is not empty
+        if not pair_address or not pair_address.strip():
+            logger.debug("Skipping DexScreener lookup - empty pair address")
+            return None
+
         try:
             _rate_limit()
             url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{pair_address}"
