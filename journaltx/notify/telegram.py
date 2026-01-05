@@ -112,12 +112,9 @@ class TelegramNotifier:
             else:
                 value_str = f"<b>{alert.value_sol:,.2f} SOL</b> trading volume"
 
-        # Format time - show both UTC and local timezone
-        # Convert to local timezone
+        # Format time - show only local timezone (WIB)
         local_time = alert.triggered_at.astimezone(self.timezone)
-        utc_str = alert.triggered_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-        local_str = local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-        time_str = f"{utc_str}\n{local_str}"
+        time_str = local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
         # Fetch market info (as informational data)
         market_info = self._get_market_info(alert.pair)
