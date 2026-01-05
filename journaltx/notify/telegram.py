@@ -194,6 +194,14 @@ Check risk/reward and rules first.</i>"""
             logger.warning("Telegram not configured, skipping notification")
             return False
 
+        # Check market cap filter (skip big established coins)
+        market_info = self._get_market_info(alert.pair)
+        if market_info:
+            market_cap = market_info.get("market_cap", 0)
+            if market_cap > self.config.max_market_cap:
+                logger.info(f"Skipping {alert.pair}: market cap ${market_cap:,.0f} > ${self.config.max_market_cap:,.0f}")
+                return False
+
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         message = self._format_alert(alert)
 

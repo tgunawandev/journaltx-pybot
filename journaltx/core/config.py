@@ -37,8 +37,7 @@ class Config:
     timezone: str = "Asia/Jakarta"
 
     # Early meme coin filters
-    max_market_cap: float = 1000000.0
-    max_pair_age_hours: int = 24
+    max_market_cap: float = 1000000.0  # Ignore coins above this market cap
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -56,5 +55,4 @@ class Config:
             max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "2")),
             timezone=os.getenv("TIMEZONE", "Asia/Jakarta"),
             max_market_cap=float(os.getenv("MAX_MARKET_CAP", "1000000.0")),
-            max_pair_age_hours=int(os.getenv("MAX_PAIR_AGE_HOURS", "24")),
         )
