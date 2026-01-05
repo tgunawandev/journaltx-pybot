@@ -1,14 +1,20 @@
 """
-Early-stage meme coin filtering rules.
+Early-stage meme filtering rules - Refined.
 
-Implements strict multi-stage filtering for early meme detection.
+Key principles:
+- Near-zero ignition only
+- Market cap for defensive filtering only
+- Require 2+ momentum signals
+- Log silently if not ready
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Tuple
 
 import requests
+
+from journaltx.filters.signals import Signal, get_signal_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +27,7 @@ LEGACY_MEMES = {
 
 def get_pair_market_data(pair: str) -> Optional[dict]:
     """
-    Fetch comprehensive pair data from DexScreener.
+    Fetch market data from DexScreener.
 
     Returns None if data unavailable.
     """
@@ -30,7 +36,7 @@ def get_pair_market_data(pair: str) -> Optional[dict]:
 
         # Check legacy list first
         if base_token in LEGACY_MEMES:
-            logger.info(f"{pair} blocked: Legacy meme ({base_token})")
+            logger.info(f"[LEGACY] {pair} blocked: {base_token}")
             return {"legacy_meme": True}
 
         # Fetch from DexScreener
@@ -49,7 +55,6 @@ def get_pair_market_data(pair: str) -> Optional[dict]:
 
             quote_symbol = pair_data.get("quoteToken", {}).get("symbol", "")
             if quote_symbol != "SOL":
-                logger.info(f"{pair} skipped: Quote token is {quote_symbol}, not SOL")
                 return {"wrong_quote": True}
 
             # Calculate pair age
@@ -57,17 +62,17 @@ def get_pair_market_data(pair: str) -> Optional[dict]:
             if not pair_created:
                 return None
 
-            pair_age_seconds = (datetime.now().timestamp() - pair_created / 1000)
-            pair_age_hours = pair_age_seconds / 3600
+            pair_age_hours = (datetime.now().timestamp() - pair_created / 1000) / 3600
 
-            # Get LP liquidity
-            liquidity = pair_data.get("liquidity", {}).get("usd", 0)
+            # Get liquidity (near-zero check)
+            liquidity_usd = pair_data.get("liquidity", {}).get("usd", 0)
 
-            # Get transactions for volume spike check
+            # Get transactions
             txns = pair_data.get("txns", {})
-            volume_24h = pair_data.get("volume", {}).get("h24", 0)
+            buys_5m = txns.get("m5", {}).get("buys", 0)
+            sells_5m = txns.get("m5", {}).get("sells", 0)
 
-            # Market cap
+            # Market cap (for defensive filtering only)
             market_cap = pair_data.get("marketCap", 0)
             fdv = pair_data.get("fdv", 0)
 
@@ -75,14 +80,10 @@ def get_pair_market_data(pair: str) -> Optional[dict]:
                 "legacy_meme": False,
                 "wrong_quote": False,
                 "market_cap": market_cap or fdv,
-                "liquidity_usd": liquidity,
-                "liquidity_sol": liquidity / 150.0 if liquidity else 0,  # Approx SOL price
+                "liquidity_usd": liquidity_usd,
                 "pair_age_hours": pair_age_hours,
-                "pair_created_at": pair_created,
-                "volume_24h": volume_24h,
-                "txns_m5_buys": txns.get("m5", {}).get("buys", 0),
-                "txns_m5_sells": txns.get("m5", {}).get("m5", {}).get("sells", 0),
-                "url": pair_data.get("url", ""),
+                "buys_5m": buys_5m,
+                "sells_5m": sells_5m,
             }
 
         return None
@@ -92,58 +93,60 @@ def get_pair_market_data(pair: str) -> Optional[dict]:
         return None
 
 
-def check_early_stage_rules(
+def check_early_stage_opportunity(
     pair: str,
     lp_added_sol: float,
     lp_before_sol: float = 0,
     max_pair_age_hours: int = 24,
-    min_sol_threshold: float = 300.0,
-    small_baseline: float = 20.0,
-    max_market_cap: float = 20_000_000.0,
-) -> Tuple[bool, dict]:
+    near_zero_baseline_sol: float = 10.0,
+    min_lp_ignite_sol: float = 300.0,
+    max_market_cap_defensive: float = 20_000_000.0,
+    signal_window_minutes: int = 30,
+) -> Tuple[bool, bool, dict]:
     """
-    Apply early-stage meme filtering rules.
+    Check if this is an early-stage opportunity with momentum.
 
-    Returns (should_alert, details) tuple.
+    Returns (should_alert, should_log, details)
+
+    - should_alert: Send to Telegram
+    - should_log: Log to database (even if no alert)
+    - details: Diagnostic info
     """
     details = {
         "pair": pair,
         "lp_added_sol": lp_added_sol,
         "lp_before_sol": lp_before_sol,
         "checks": [],
-        "passed": False,
     }
 
-    # Rule 1: Check pair type (must be TOKEN/SOL)
+    # Always log for analysis
+    should_log = True
+
+    # Rule 1: Pair type - must be TOKEN/SOL
     if "/" not in pair:
-        details["checks"].append({"rule": "Pair format", "status": "FAIL", "reason": "Invalid pair format"})
-        return False, details
+        details["checks"].append({"rule": "Pair format", "status": "FAIL", "reason": "Invalid format"})
+        return False, should_log, details
 
-    quote = pair.split("/")[1].upper() if len(pair.split("/")) > 1 else ""
+    quote = pair.split("/")[1].upper()
     if quote != "SOL":
-        details["checks"].append({"rule": "Pair type", "status": "FAIL", "reason": f"Quote is {quote}, not SOL"})
-        return False, details
+        details["checks"].append({"rule": "Pair type", "status": "FAIL", "reason": f"Not SOL pair ({quote})"})
+        return False, should_log, details
 
-    details["checks"].append({"rule": "Pair type", "status": "PASS", "reason": "TOKEN/SOL pair"})
+    details["checks"].append({"rule": "Pair type", "status": "PASS", "reason": "TOKEN/SOL"})
 
     # Get market data
     market_data = get_pair_market_data(pair)
 
     if not market_data:
-        details["checks"].append({"rule": "Market data", "status": "SKIP", "reason": "No data available"})
-        return False, details
+        details["checks"].append({"rule": "Market data", "status": "SKIP", "reason": "No data"})
+        return False, should_log, details
 
-    # Rule 8: Legacy meme exclusion
+    # Rule 2: Legacy meme exclusion
     if market_data.get("legacy_meme"):
-        details["checks"].append({"rule": "Legacy meme", "status": "FAIL", "reason": "In legacy exclusion list"})
-        return False, details
+        details["checks"].append({"rule": "Legacy meme", "status": "BLOCK", "reason": "Hard exclusion list"})
+        return False, should_log, details
 
-    # Rule 8: Wrong quote token
-    if market_data.get("wrong_quote"):
-        details["checks"].append({"rule": "Quote token", "status": "FAIL", "reason": "Not SOL pair"})
-        return False, details
-
-    # Rule 2: Pair age (HARD GATE)
+    # Rule 3: Pair age - HARD GATE (max 24h)
     pair_age = market_data.get("pair_age_hours", 999)
     details["pair_age_hours"] = pair_age
 
@@ -151,66 +154,97 @@ def check_early_stage_rules(
         details["checks"].append({
             "rule": "Pair age",
             "status": "FAIL",
-            "reason": f"Pair age {pair_age:.1f}h > {max_pair_age_hours}h limit"
+            "reason": f"Too old: {pair_age:.1f}h > {max_pair_age_hours}h"
         })
-        return False, details
+        return False, should_log, details
 
-    age_status = "PREFERRED" if pair_age <= 6 else "PASS"
+    age_status = "✅" if pair_age <= 6 else "PASS"
     details["checks"].append({
         "rule": "Pair age",
         "status": age_status,
-        "reason": f"Pair age {pair_age:.1f}h"
+        "reason": f"{pair_age:.1f}h old"
     })
 
-    # Rule 6: Market cap (DEFENSIVE ONLY)
+    # Rule 4: Market cap - DEFENSIVE ONLY (exclude late-stage coins)
+    # Use ONLY to reject big coins, NEVER as entry signal
     market_cap = market_data.get("market_cap", 0)
     details["market_cap"] = market_cap
 
-    if market_cap >= max_market_cap:
+    if market_cap >= max_market_cap_defensive:
         details["checks"].append({
-            "rule": "Market cap",
+            "rule": "Market cap (defensive)",
             "status": "FAIL",
-            "reason": f"MC ${market_cap/1_000_000:.0f}M >= ${max_market_cap/1_000_000:.0f}M limit"
+            "reason": f"Too large: ${market_cap/1_000_000:.0f}M (excludes late-stage)"
         })
-        return False, details
+        return False, should_log, details
 
     details["checks"].append({
-        "rule": "Market cap",
+        "rule": "Market cap (defensive)",
         "status": "PASS",
-        "reason": f"MC ${market_cap/1_000_000:.2f}M"
+        "reason": f"${market_cap/1_000_000:.2f}M (not excluded)"
     })
 
-    # Rule 3: Liquidity ignition (OFFENSE SIGNAL)
-    ignition_pass = lp_added_sol >= min_sol_threshold and lp_before_sol <= small_baseline
+    # Rule 5: Near-zero ignition check
+    # LP must come from near-zero baseline AND significant addition
+    is_near_zero = lp_before_sol <= near_zero_baseline_sol
+    is_significant = lp_added_sol >= min_lp_ignite_sol
+
+    ignition_pass = is_near_zero and is_significant
     details["ignition_pass"] = ignition_pass
 
     if ignition_pass:
         details["checks"].append({
             "rule": "LP ignition",
-            "status": "PASS",
-            "reason": f"+{lp_added_sol:.0f} SOL added (≥{min_sol_threshold}), baseline {lp_before_sol:.0f} SOL (≤{small_baseline})"
+            "status": "✅ PASS",
+            "reason": f"Near-zero ignition: {lp_before_sol:.1f}SOL → +{lp_added_sol:.0f}SOL"
         })
     else:
         details["checks"].append({
             "rule": "LP ignition",
             "status": "FAIL",
-            "reason": f"LP added {lp_added_sol:.0f} SOL (need ≥{min_sol_threshold}) or baseline {lp_before_sol:.0f} SOL (need ≤{small_baseline})"
+            "reason": f"Baseline: {lp_before_sol:.1f}SOL (need ≤{near_zero_baseline_sol}), "
+                     f"Added: {lp_added_sol:.0f}SOL (need ≥{min_lp_ignite_sol})"
         })
+        # Don't alert yet, but log
+        return False, should_log, details
 
-    # Rule 9: ALERT OUTPUT RULE
-    # All must pass
-    all_pass = all(
-        check["status"] in ["PASS", "PREFERRED"]
-        for check in details["checks"]
+    # Rule 6: Multi-signal requirement
+    # Need 2+ momentum signals within window
+    tracker = get_signal_tracker()
+
+    # Add LP add signal
+    signal = Signal(
+        signal_type="lp_add",
+        timestamp=datetime.now(),
+        pair=pair,
+        details={"lp_added": lp_added_sol, "lp_before": lp_before_sol}
     )
 
-    details["passed"] = all_pass
+    should_alert = tracker.add_signal(signal)
+    signal_counts = tracker.get_signal_count(pair)
 
-    if all_pass:
+    details["signal_counts"] = signal_counts
+
+    if should_alert:
         details["checks"].append({
-            "rule": "FINAL",
-            "status": "ALERT",
-            "reason": "All early-stage rules passed"
+            "rule": "Multi-signal",
+            "status": "✅ PASS",
+            "reason": f"{signal_counts['total']} signals: {list(signal_counts['types'].keys())}"
         })
+    else:
+        details["checks"].append({
+            "rule": "Multi-signal",
+            "status": "WAIT",
+            "reason": f"Need 2+ signals, have {signal_counts['total']}: {list(signal_counts['types'].keys())}"
+        })
+        # Log but don't alert yet
+        return False, should_log, details
 
-    return all_pass, details
+    # All checks passed - ready to alert!
+    details["checks"].append({
+        "rule": "FINAL",
+        "status": "🚨 ALERT",
+        "reason": "Early-stage opportunity confirmed"
+    })
+
+    return True, should_log, details

@@ -37,10 +37,11 @@ class Config:
     timezone: str = "Asia/Jakarta"
 
     # Early-stage meme filters
-    max_market_cap: float = 20_000_000.0  # $20M - Auto-reject if above this
+    max_market_cap: float = 20_000_000.0  # $20M - Defensive filter only
     max_pair_age_hours: int = 24  # 24h - Auto-reject if older
     min_lp_sol_threshold: float = 300.0  # Min SOL for LP ignition
-    small_baseline_sol: float = 20.0  # Max SOL baseline before LP
+    small_baseline_sol: float = 10.0  # Near-zero baseline (≤10 SOL)
+    signal_window_minutes: int = 30  # Multi-signal window
 
     # Mode: LIVE or TEST
     mode: str = "TEST"  # Default to TEST for safety
@@ -63,6 +64,7 @@ class Config:
             max_market_cap=float(os.getenv("MAX_MARKET_CAP", "20000000.0")),
             max_pair_age_hours=int(os.getenv("MAX_PAIR_AGE_HOURS", "24")),
             min_lp_sol_threshold=float(os.getenv("MIN_LP_SOL_THRESHOLD", "300.0")),
-            small_baseline_sol=float(os.getenv("SMALL_BASELINE_SOL", "20.0")),
+            small_baseline_sol=float(os.getenv("SMALL_BASELINE_SOL", "10.0")),
+            signal_window_minutes=int(os.getenv("SIGNAL_WINDOW_MINUTES", "30")),
             mode=os.getenv("MODE", "TEST").upper(),
         )

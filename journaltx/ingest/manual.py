@@ -11,7 +11,7 @@ from typing import Optional
 from journaltx.core.config import Config
 from journaltx.core.models import Alert, AlertType
 from journaltx.core.db import session_scope
-from journaltx.filters.early_meme import check_early_stage_rules
+from journaltx.filters.early_meme import check_early_stage_opportunity
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +41,38 @@ def log_manual_alert(
     if not normalized_type:
         raise ValueError(f"Invalid alert type: {alert_type}")
 
-    # Run early-stage filter check
+    # Run refined early-stage filter check
     lp_before = lp_sol_before if lp_sol_before is not None else 0.0
-    passed, filter_details = check_early_stage_rules(
+    should_alert, should_log, filter_details = check_early_stage_opportunity(
         pair=pair,
         lp_added_sol=value_sol,
         lp_before_sol=lp_before,
         max_pair_age_hours=config.max_pair_age_hours,
-        min_sol_threshold=config.min_lp_sol_threshold,
-        small_baseline=config.small_baseline_sol,
-        max_market_cap=config.max_market_cap,
+        near_zero_baseline_sol=config.small_baseline_sol,
+        min_lp_ignite_sol=config.min_lp_sol_threshold,
+        max_market_cap_defensive=config.max_market_cap,
     )
+
+    # Log the filtering result
+    if filter_details.get("signal_counts"):
+        counts = filter_details["signal_counts"]
+        logger.info(
+            f"Filter result: {pair} - Alert={should_alert}, "
+            f"Signals={counts['total']} ({list(counts['types'].keys())})"
+        )
+
+    # Always log to database for analysis
+    if not should_log:
+        logger.info(f"Not logging to database: {pair}")
+        # Return dummy alert for compatibility
+        return Alert(
+            id=0,
+            type=normalized_type,
+            chain="solana",
+            pair=pair.upper(),
+            value_sol=value_sol,
+            value_usd=value_usd,
+        )
 
     lp_sol_after = lp_before + value_sol
 
@@ -66,7 +87,7 @@ def log_manual_alert(
             lp_sol_before=lp_sol_before,
             lp_sol_after=lp_sol_after,
             pair_age_hours=pair_age_hours,
-            early_stage_passed=passed,
+            early_stage_passed=should_alert,  # True if should alert
             mode=config.mode,
             triggered_at=datetime.utcnow(),
         )
@@ -86,7 +107,7 @@ def log_manual_alert(
         alert_mode = alert.mode
         alert_triggered_at = alert.triggered_at
 
-        logger.info(f"Manually logged alert: {alert}, early-stage: {passed}")
+        logger.info(f"Manually logged alert: {alert}, early-stage: {should_alert}")
 
     # Create a new Alert object outside the session context
     return Alert(
