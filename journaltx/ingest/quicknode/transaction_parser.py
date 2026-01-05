@@ -83,50 +83,71 @@ class SolanaTransactionParser:
         self.token_resolver = get_token_resolver(http_rpc_url)
         self.price_service = get_price_service()
 
-    def get_transaction(self, signature: str) -> Optional[Dict[str, Any]]:
+    def get_transaction(self, signature: str, retries: int = 3) -> Optional[Dict[str, Any]]:
         """
         Fetch full transaction details from QuickNode.
 
         Args:
             signature: Transaction signature
+            retries: Number of retry attempts
 
         Returns:
             Transaction details or None
         """
-        try:
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getTransaction",
-                "params": [
-                    signature,
-                    {
-                        "encoding": "jsonParsed",
-                        "maxSupportedTransactionVersion": 0
-                    }
-                ]
-            }
+        import time
 
-            response = self.session.post(
-                self.http_rpc_url,
-                json=payload,
-                timeout=15
-            )
-            response.raise_for_status()
-            data = response.json()
+        for attempt in range(retries):
+            try:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getTransaction",
+                    "params": [
+                        signature,
+                        {
+                            "encoding": "jsonParsed",
+                            "maxSupportedTransactionVersion": 0,
+                            "commitment": "confirmed"  # Match subscription commitment
+                        }
+                    ]
+                }
 
-            if data.get("error"):
-                logger.error(f"RPC error: {data['error']}")
+                response = self.session.post(
+                    self.http_rpc_url,
+                    json=payload,
+                    timeout=15
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("error"):
+                    logger.info(f"[FETCH] RPC error (attempt {attempt+1}): {data['error']}")
+                    if attempt < retries - 1:
+                        time.sleep(0.5)  # Wait before retry
+                        continue
+                    return None
+
+                if data.get("result"):
+                    logger.info(f"[FETCH] ✓ Transaction fetched successfully")
+                    return data["result"]
+
+                # Result is null - transaction not yet available
+                if attempt < retries - 1:
+                    logger.info(f"[FETCH] Transaction not available yet (attempt {attempt+1}), retrying...")
+                    time.sleep(0.5)  # Wait before retry
+                    continue
+
+                logger.info(f"[FETCH] ❌ Transaction still not available after {retries} attempts")
                 return None
 
-            if data.get("result"):
-                return data["result"]
+            except Exception as e:
+                logger.error(f"[FETCH] Error fetching transaction {signature[:12]}...: {e}")
+                if attempt < retries - 1:
+                    time.sleep(0.5)
+                    continue
+                return None
 
-            return None
-
-        except Exception as e:
-            logger.error(f"Error fetching transaction {signature}: {e}")
-            return None
+        return None
 
     def parse_lp_event(self, transaction: Dict[str, Any]) -> Optional[ParsedLPEvent]:
         """
