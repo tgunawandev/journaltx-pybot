@@ -36,6 +36,10 @@ class Config:
     # Timezone
     timezone: str = "Asia/Jakarta"
 
+    # Early meme coin filters
+    max_market_cap: float = 1000000.0
+    max_pair_age_hours: int = 24
+
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
@@ -51,4 +55,6 @@ class Config:
             volume_spike_multiplier=float(os.getenv("VOLUME_SPIKE_MULTIPLIER", "3.0")),
             max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "2")),
             timezone=os.getenv("TIMEZONE", "Asia/Jakarta"),
+            max_market_cap=float(os.getenv("MAX_MARKET_CAP", "1000000.0")),
+            max_pair_age_hours=int(os.getenv("MAX_PAIR_AGE_HOURS", "24")),
         )
