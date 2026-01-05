@@ -36,6 +36,7 @@ from rich.table import Table
 
 from journaltx.core.config import Config
 from journaltx.core.db import init_db
+from journaltx.core.utils import format_pair_age
 from journaltx.ingest.quicknode.lp_events import LPEventListener
 from journaltx.ingest.quicknode.raydium_subscriptions import (
     get_all_dex_subscriptions,
@@ -126,7 +127,7 @@ class LPListener:
             f"Token: {alert.token_mint[:8]}...{alert.token_mint[-8:] if alert.token_mint else 'N/A'}\n"
             f"Pool: {alert.pool_address[:8]}...{alert.pool_address[-8:] if alert.pool_address else 'N/A'}\n"
             f"New Pool: {'Yes' if alert.is_new_pool else 'No'}\n"
-            f"Age: {alert.pair_age_hours:.1f}h | MCap: ${alert.market_cap/1e6:.2f}M",
+            f"Age: {format_pair_age(alert.pair_age_hours, short=True)} | MCap: ${alert.market_cap/1e6:.2f}M",
             title="[bold yellow]Early-Stage Opportunity[/bold yellow]",
             border_style="green"
         ))
@@ -248,13 +249,13 @@ class LPListener:
             logger.info(f"[LP]   New Pool: {parsed_event.is_new_pool}")
             logger.info(f"[LP]   Liquidity: {parsed_event.liquidity_sol:.2f} SOL (~${parsed_event.liquidity_usd:,.0f})")
             logger.info(f"[LP]   Market Cap: ${parsed_event.market_cap:,.0f}")
-            logger.info(f"[LP]   Pair Age: {parsed_event.pair_age_hours:.2f}h")
+            logger.info(f"[LP]   Pair Age: {format_pair_age(parsed_event.pair_age_hours)}")
             logger.info(f"[LP]   DexScreener: {parsed_event.dexscreener_url}")
 
             console.print(
                 f"[cyan]LP Event:[/cyan] {parsed_event.pair_string} | "
                 f"+{parsed_event.sol_amount:.1f} SOL (~${parsed_event.sol_amount_usd:.0f}) | "
-                f"{'[NEW POOL]' if parsed_event.is_new_pool else f'Age: {parsed_event.pair_age_hours:.1f}h'} | "
+                f"{'[NEW POOL]' if parsed_event.is_new_pool else f'Age: {format_pair_age(parsed_event.pair_age_hours, short=True)}'} | "
                 f"MCap: ${parsed_event.market_cap/1e6:.2f}M"
             )
 

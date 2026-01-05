@@ -12,6 +12,7 @@ import requests
 
 from journaltx.core.config import Config
 from journaltx.core.models import Alert
+from journaltx.core.utils import format_pair_age
 
 logger = logging.getLogger(__name__)
 
@@ -152,13 +153,9 @@ class TelegramNotifier:
         # Get pair from alert
         pair_display = alert.pair.replace("/", " / ")
 
-        # Format pair age
-        if alert.pair_age_hours:
-            if alert.pair_age_hours < 1:
-                age_minutes = int(alert.pair_age_hours * 60)
-                pair_age_str = f"{age_minutes} minutes"
-            else:
-                pair_age_str = f"{alert.pair_age_hours:,.0f} hours"
+        # Format pair age with human-readable format
+        if alert.pair_age_hours is not None:
+            pair_age_str = format_pair_age(alert.pair_age_hours)
         else:
             pair_age_str = "Unknown"
 
