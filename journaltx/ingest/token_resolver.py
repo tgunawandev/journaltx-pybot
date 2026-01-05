@@ -91,30 +91,34 @@ class TokenResolver:
 
         try:
             _rate_limit()
-            # Use Jupiter's strict list for known tokens
+            # Use Jupiter's new v2 API for verified tokens
+            # Note: lite-api.jup.ag replaces the deprecated token.jup.ag
             response = self.session.get(
-                "https://token.jup.ag/strict",
+                "https://lite-api.jup.ag/tokens/v2/tag?query=verified",
                 timeout=15
             )
             response.raise_for_status()
             tokens = response.json()
 
             for token in tokens:
-                mint = token.get("address", "")
+                # New API uses 'id' instead of 'address'
+                mint = token.get("id", "")
+                if not mint:
+                    continue
                 self._jupiter_tokens[mint] = TokenInfo(
                     mint=mint,
                     symbol=token.get("symbol", "UNKNOWN"),
                     name=token.get("name", "Unknown Token"),
                     decimals=token.get("decimals", 9),
-                    logo_uri=token.get("logoURI"),
-                    coingecko_id=token.get("extensions", {}).get("coingeckoId")
+                    logo_uri=token.get("icon"),  # New API uses 'icon' instead of 'logoURI'
+                    coingecko_id=None  # No longer provided in new API
                 )
 
             self._jupiter_loaded = True
             logger.info(f"Loaded {len(self._jupiter_tokens)} tokens from Jupiter")
 
         except Exception as e:
-            logger.error(f"Failed to load Jupiter token list: {e}")
+            logger.warning(f"Failed to load Jupiter token list (will use DexScreener): {e}")
 
     def get_token_info(self, mint: str) -> Optional[TokenInfo]:
         """
@@ -322,10 +326,8 @@ class PriceService:
         """
         Get current SOL price in USD.
 
-        Uses multiple sources with fallback:
-        1. Jupiter Price API
-        2. CoinGecko API
-        3. Cached value or default
+        Uses CoinGecko API with caching.
+        Note: Jupiter Price API now requires authentication and is deprecated.
 
         Returns:
             SOL price or default if unavailable
@@ -336,33 +338,12 @@ class PriceService:
         if self._sol_price_cache and (now - self._sol_price_time) < self._cache_ttl:
             return self._sol_price_cache
 
-        # Try Jupiter first
-        try:
-            _rate_limit()
-            response = self.session.get(
-                "https://price.jup.ag/v6/price?ids=SOL",
-                timeout=5
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            sol_data = data.get("data", {}).get("SOL", {})
-            price = sol_data.get("price", 0)
-
-            if price > 0:
-                self._sol_price_cache = price
-                self._sol_price_time = now
-                return price
-
-        except Exception as e:
-            logger.debug(f"Jupiter price API failed: {e}")
-
-        # Try CoinGecko as fallback
+        # Use CoinGecko (free, no auth required)
         try:
             _rate_limit()
             response = self.session.get(
                 "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
-                timeout=5
+                timeout=10
             )
             response.raise_for_status()
             data = response.json()
@@ -383,27 +364,18 @@ class PriceService:
         """
         Get token price in USD.
 
+        Note: Jupiter Price API now requires authentication.
+        For meme tokens, DexScreener provides price data via pair info.
+
         Args:
             mint: Token mint address
 
         Returns:
-            Price in USD or None
+            Price in USD or None (use DexScreener pair info instead)
         """
-        try:
-            _rate_limit()
-            response = self.session.get(
-                f"https://price.jup.ag/v6/price?ids={mint}",
-                timeout=10
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            token_data = data.get("data", {}).get(mint, {})
-            return token_data.get("price")
-
-        except Exception as e:
-            logger.debug(f"Failed to get price for {mint}: {e}")
-            return None
+        # Jupiter Price API now requires auth - return None
+        # Callers should use DexScreener pair_info.price_usd instead
+        return None
 
 
 # Global instances
