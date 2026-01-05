@@ -83,6 +83,7 @@ def log_manual_alert(
         alert_lp_after = alert.lp_sol_after
         alert_pair_age = alert.pair_age_hours
         alert_early_passed = alert.early_stage_passed
+        alert_mode = alert.mode
         alert_triggered_at = alert.triggered_at
 
         logger.info(f"Manually logged alert: {alert}, early-stage: {passed}")
@@ -99,6 +100,7 @@ def log_manual_alert(
         lp_sol_after=alert_lp_after,
         pair_age_hours=alert_pair_age,
         early_stage_passed=alert_early_passed,
+        mode=alert_mode,
         triggered_at=alert_triggered_at,
     )
 
