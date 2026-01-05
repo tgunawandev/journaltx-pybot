@@ -28,6 +28,40 @@ from journaltx.notify.telegram import TelegramNotifier
 app = Typer(help="QuickNode WebSocket listener")
 console = Console()
 
+
+def mask_url(url: str) -> str:
+    """
+    Mask sensitive parts of a URL for safe logging.
+
+    Args:
+        url: The URL to mask
+
+    Returns:
+        Masked URL with credentials hidden
+    """
+    if not url:
+        return "Not configured"
+
+    try:
+        # For WebSocket URLs, mask the endpoint ID
+        if "quiknode" in url.lower():
+            # Extract the base and mask the unique ID
+            parts = url.split("/")
+            if len(parts) >= 4:
+                # wss://<endpoint>.solana-mainnet.quiknode.pro/<id>/
+                base = "/".join(parts[:3])
+                return f"{base}/***MASKED***/"
+
+        # For other URLs, just show protocol and domain
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return f"{parsed.scheme}://{parsed.netloc}/***MASKED***"
+
+    except Exception:
+        # If parsing fails, return generic mask
+        return "***MASKED***"
+
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -89,7 +123,7 @@ def main(
     async def connect_and_listen():
         """Connect to WebSocket and listen."""
         console.print(f"[bold]Connecting to QuickNode...[/bold]\n")
-        console.print(f"URL: {config.quicknode_ws_url}\n")
+        console.print(f"URL: {mask_url(config.quicknode_ws_url)}\n")
 
         try:
             async with websockets.connect(config.quicknode_ws_url) as ws:
