@@ -5,7 +5,7 @@ Sends neutral, boring alerts to Telegram.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
@@ -28,6 +28,58 @@ class TelegramNotifier:
         self.bot_token = config.telegram_bot_token
         self.chat_id = config.telegram_chat_id
         self.timezone = ZoneInfo(config.timezone)
+
+    def _get_market_info(self, pair: str) -> dict:
+        """
+        Fetch market cap info from DexScreener.
+
+        Args:
+            pair: Trading pair (e.g., "BONK/SOL")
+
+        Returns:
+            Dict with market_cap, pair_age, liquidity info
+        """
+        try:
+            base_token = pair.split("/")[0]
+            url = f"https://api.dexscreener.com/latest/dex/search/?q={base_token}"
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+
+            if not data.get("pairs"):
+                return None
+
+            # Find first SOL pair
+            for pair_data in data["pairs"]:
+                if pair_data.get("chainId") == "solana" and pair_data.get("quoteToken", {}).get("symbol") == "SOL":
+                    market_cap = pair_data.get("marketCap", 0)
+                    liquidity = pair_data.get("liquidity", {}).get("usd", 0)
+                    pair_created = pair_data.get("pairCreatedAt")
+
+                    # Calculate pair age
+                    age_str = "Unknown"
+                    if pair_created:
+                        pair_age = datetime.now() - datetime.fromtimestamp(pair_created / 1000)
+                        if pair_age.days > 0:
+                            age_str = f"{pair_age.days}d"
+                        elif pair_age.seconds >= 3600:
+                            hours = pair_age.seconds // 3600
+                            age_str = f"{hours}h"
+                        else:
+                            minutes = pair_age.seconds // 60
+                            age_str = f"{minutes}m"
+
+                    return {
+                        "market_cap": market_cap,
+                        "liquidity": liquidity,
+                        "pair_age": age_str,
+                    }
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to fetch market info: {e}")
+            return None
 
     def _format_alert(self, alert: Alert) -> str:
         """
@@ -67,13 +119,44 @@ class TelegramNotifier:
         local_str = local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
         time_str = f"{utc_str}\n{local_str}"
 
+        # Fetch market info (as informational data)
+        market_info = self._get_market_info(alert.pair)
+        market_info_str = ""
+        if market_info:
+            mc = market_info.get("market_cap", 0)
+            liq = market_info.get("liquidity", 0)
+            age = market_info.get("pair_age", "Unknown")
+
+            # Format market cap
+            if mc >= 1_000_000_000:
+                mc_str = f"${mc / 1_000_000_000:.1f}B"
+            elif mc >= 1_000_000:
+                mc_str = f"${mc / 1_000_000:.1f}M"
+            elif mc >= 1_000:
+                mc_str = f"${mc / 1_000:.0f}K"
+            else:
+                mc_str = f"${mc:,.0f}"
+
+            # Format liquidity
+            if liq >= 1_000_000:
+                liq_str = f"${liq / 1_000_000:.1f}M"
+            elif liq >= 1_000:
+                liq_str = f"${liq / 1_000:.0f}K"
+            else:
+                liq_str = f"${liq:,.0f}"
+
+            market_info_str = f"""
+<b>Market Cap:</b> {mc_str}
+<b>Liquidity:</b> {liq_str}
+<b>Pair Age:</b> {age}"""
+
         # Build message with HTML formatting
         message = f"""<b>JournalTX Alert</b>
 
 <b>Type:</b> {type_name}
 <b>Pair:</b> {alert.pair}
 <b>Amount:</b> {value_str}
-<b>Time:</b> {time_str}
+<b>Time:</b> {time_str}{market_info_str}
 
 <i>Check DexScreener for holder count and liquidity details.</i>
 
