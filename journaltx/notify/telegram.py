@@ -1,0 +1,187 @@
+"""
+Telegram notification module.
+
+Sends neutral, boring alerts to Telegram.
+"""
+
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import requests
+
+from journaltx.core.config import Config
+from journaltx.core.models import Alert
+
+logger = logging.getLogger(__name__)
+
+
+class TelegramNotifier:
+    """
+    Sends alerts to Telegram bot.
+
+    Messages are intentionally neutral and non-urgent.
+    """
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.bot_token = config.telegram_bot_token
+        self.chat_id = config.telegram_chat_id
+        self.timezone = ZoneInfo(config.timezone)
+
+    def _format_alert(self, alert: Alert) -> str:
+        """
+        Format alert as HTML message.
+
+        Uses HTML formatting for better readability while keeping messages neutral.
+        """
+        # Format type
+        type_names = {
+            "lp_add": "LP Added",
+            "lp_remove": "LP Removed",
+            "volume_spike": "Volume Spike",
+        }
+        type_name = type_names.get(alert.type.value, alert.type.value)
+
+        # Format value - make it clearer what the amount represents
+        if alert.type.value == "lp_add":
+            if alert.value_usd:
+                value_str = f"<b>+{alert.value_sol:,.2f} SOL</b> (~${alert.value_usd:,.0f}) added to liquidity pool"
+            else:
+                value_str = f"<b>+{alert.value_sol:,.2f} SOL</b> added to liquidity pool"
+        elif alert.type.value == "lp_remove":
+            if alert.value_usd:
+                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> (~${alert.value_usd:,.0f}) removed from liquidity pool"
+            else:
+                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> removed from liquidity pool"
+        else:  # volume_spike
+            if alert.value_usd:
+                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> (~${alert.value_usd:,.0f}) trading volume"
+            else:
+                value_str = f"<b>{alert.value_sol:,.2f} SOL</b> trading volume"
+
+        # Format time - show both UTC and local timezone
+        # Convert to local timezone
+        local_time = alert.triggered_at.astimezone(self.timezone)
+        utc_str = alert.triggered_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+        local_str = local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+        time_str = f"{utc_str}\n{local_str}"
+
+        # Build message with HTML formatting
+        message = f"""<b>JournalTX Alert</b>
+
+<b>Type:</b> {type_name}
+<b>Pair:</b> {alert.pair}
+<b>Amount:</b> {value_str}
+<b>Time:</b> {time_str}
+
+<i>Check DexScreener for holder count and liquidity details.</i>
+
+<i>This is NOT a trade signal.
+Check risk/reward and rules first.</i>"""
+
+        return message
+
+    def get_pair_urls(self, pair: str) -> dict:
+        """
+        Generate research URLs for a pair.
+
+        Args:
+            pair: Trading pair (e.g., "BONK/SOL")
+
+        Returns:
+            Dict of URL names to URLs
+        """
+        base_token = pair.split("/")[0].lower()
+
+        return {
+            "dexscreener": f"https://dexscreener.com/solana/{base_token}",
+            "photon": f"https://photon-sol.tinyastro.io/?token={base_token}",
+            "birdeye": f"https://birdeye.so/token/{base_token}?chain=solana",
+            "jupiter": f"https://jup.ag/quote/SOL/{base_token}",  # Use jup.ag instead of jupiter.ag
+        }
+
+    def send_alert(self, alert: Alert) -> bool:
+        """
+        Send alert to Telegram with HTML formatting and link buttons.
+
+        Returns True if successful, False otherwise.
+        """
+        if not self.bot_token or not self.chat_id:
+            logger.warning("Telegram not configured, skipping notification")
+            return False
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        message = self._format_alert(alert)
+
+        # Get research URLs
+        urls = self.get_pair_urls(alert.pair)
+
+        # Create inline keyboard with link buttons
+        # Note: We can't add callback buttons yet because that requires
+        # the bot to be running to handle callbacks. For now, just URL buttons.
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "📊 DexScreener", "url": urls["dexscreener"]},
+                    {"text": "⚡ Photon", "url": urls["photon"]},
+                ],
+                [
+                    {"text": "🦅 Birdeye", "url": urls["birdeye"]},
+                    {"text": "🪐 Jupiter", "url": urls["jupiter"]},
+                ],
+            ]
+        }
+
+        try:
+            response = requests.post(
+                url,
+                json={
+                    "chat_id": self.chat_id,
+                    "text": message,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                    "reply_markup": reply_markup,
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+
+            logger.info(f"Telegram notification sent: {alert.id}")
+            return True
+
+        except requests.RequestException as e:
+            logger.error(f"Telegram notification failed: {e}")
+            return False
+
+    def send_message(self, text: str) -> bool:
+        """
+        Send arbitrary message to Telegram.
+
+        Useful for weekly review summaries. Supports HTML formatting.
+        """
+        if not self.bot_token or not self.chat_id:
+            logger.warning("Telegram not configured, skipping notification")
+            return False
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+
+        try:
+            response = requests.post(
+                url,
+                json={
+                    "chat_id": self.chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+
+            logger.info("Telegram message sent")
+            return True
+
+        except requests.RequestException as e:
+            logger.error(f"Telegram message failed: {e}")
+            return False

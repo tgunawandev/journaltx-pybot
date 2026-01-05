@@ -1,0 +1,48 @@
+[project]
+name = "journaltx-pybot"
+version = "0.1.0"
+description = "Personal trading discipline system for Solana meme trading"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlalchemy>=2.0.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "requests>=2.31.0",
+    "websockets>=12.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=65.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["journaltx"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I"]
+
+[project.scripts]
+journaltx-log = "scripts.log_trade:app"
+journaltx-review = "scripts.review_week:app"
+journaltx-screener = "scripts.screener:app"
+journaltx-export = "scripts.export_csv:app"
+journaltx-listen = "scripts.listen:app"
+journaltx-setup-telegram = "scripts.setup_telegram:app"
+journaltx-test-telegram = "scripts.test_telegram:app"
+journaltx-get-chat-id = "scripts.get_chat_id:app"
+journaltx-alert = "scripts.alert:app"
+journaltx-profile = "scripts.profile:app"
