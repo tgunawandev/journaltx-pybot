@@ -20,7 +20,12 @@ class Config:
     # Database
     database_path: str = "data/journaltx.db"
 
-    # QuickNode
+    # Helius (Primary - FREE, no rate limits)
+    helius_api_key: Optional[str] = None
+    helius_rpc_url: Optional[str] = None
+    helius_ws_url: Optional[str] = None
+
+    # QuickNode (Backup)
     quicknode_ws_url: Optional[str] = None
     quicknode_http_url: Optional[str] = None
 
@@ -102,9 +107,21 @@ class Config:
         # Extract hard reject rules from filter JSON
         hard_reject = filter_data.get("hard_reject_if", {})
 
+        # Helius settings (primary)
+        helius_api_key = os.getenv("HELIUS_API_KEY")
+        helius_rpc_url = os.getenv("HELIUS_RPC_URL")
+        helius_ws_url = None
+        if helius_api_key:
+            helius_ws_url = f"wss://mainnet.helius-rpc.com/?api-key={helius_api_key}"
+            if not helius_rpc_url:
+                helius_rpc_url = f"https://mainnet.helius-rpc.com/?api-key={helius_api_key}"
+
         # Build config
         config = cls(
             database_path=os.getenv("JOURNALTX_DB_PATH", "data/journaltx.db"),
+            helius_api_key=helius_api_key,
+            helius_rpc_url=helius_rpc_url,
+            helius_ws_url=helius_ws_url,
             quicknode_ws_url=os.getenv("QUICKNODE_WS_URL"),
             quicknode_http_url=os.getenv("QUICKNODE_HTTP_URL"),
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),

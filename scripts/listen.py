@@ -79,9 +79,10 @@ def mask_url(url: str) -> str:
 
 class LPListener:
     """
-    Real-time LP listener using QuickNode WebSocket.
+    Real-time LP listener using Helius or QuickNode WebSocket.
 
     Implements automatic reconnection with exponential backoff.
+    Helius is preferred (FREE, no rate limits).
     """
 
     def __init__(self, config: Config):
@@ -99,13 +100,18 @@ class LPListener:
         self.processed_signatures: set = set()
         self.max_cache_size = 1000
 
+        # Select provider: Helius (primary) or QuickNode (fallback)
+        self.provider = "helius" if config.helius_ws_url else "quicknode"
+        self.ws_url = config.helius_ws_url or config.quicknode_ws_url
+        self.rpc_url = config.helius_rpc_url or config.quicknode_http_url
+
         # Initialize components
         self.lp_listener = LPEventListener(config)
         self.tx_parser = None
         self.telegram = None
 
-        if config.quicknode_http_url:
-            self.tx_parser = SolanaTransactionParser(config.quicknode_http_url)
+        if self.rpc_url:
+            self.tx_parser = SolanaTransactionParser(self.rpc_url)
 
         if config.telegram_bot_token and config.telegram_chat_id:
             self.telegram = TelegramNotifier(config)
@@ -280,12 +286,14 @@ class LPListener:
         self.running = True
         self.start_time = datetime.now()
 
+        provider_name = self.provider.capitalize()
+
         while self.running:
             try:
-                logger.info(f"Connecting to QuickNode: {mask_url(self.config.quicknode_ws_url)}")
+                logger.info(f"Connecting to {provider_name}: {mask_url(self.ws_url)}")
 
                 async with websockets.connect(
-                    self.config.quicknode_ws_url,
+                    self.ws_url,
                     ping_interval=30,
                     ping_timeout=10,
                     close_timeout=5,
@@ -293,7 +301,7 @@ class LPListener:
                     self.ws = ws
                     self.reconnect_delay = 1  # Reset delay on successful connection
 
-                    console.print("[bold green]Connected to QuickNode![/bold green]\n")
+                    console.print(f"[bold green]Connected to {provider_name}![/bold green]\n")
 
                     # Subscribe to DEX logs
                     subscriptions = get_all_dex_subscriptions()
@@ -332,6 +340,7 @@ class LPListener:
         table.add_column("Setting", style="cyan")
         table.add_column("Value", style="green")
 
+        table.add_row("Provider", f"{self.provider.capitalize()} (FREE)" if self.provider == "helius" else self.provider.capitalize())
         table.add_row("Mode", self.config.mode)
         table.add_row("Profile", self.config.profile_template)
         table.add_row("Filter", self.config.filter_template)
@@ -369,16 +378,16 @@ def main(
     verbose: bool = Option(False, "--verbose", "-v", help="Verbose logging"),
 ):
     """
-    Connect to QuickNode WebSocket and listen for Raydium LP events.
+    Connect to Helius/QuickNode WebSocket and listen for Raydium LP events.
 
     This is REAL on-chain ingestion:
-    - Subscribes to Raydium AMM program logs via QuickNode WebSocket
+    - Subscribes to Raydium AMM program logs via WebSocket
     - Parses transactions to decode LP additions
     - Extracts token mints and amounts from balance deltas
     - Applies early-stage filters
     - Sends alerts to Telegram
 
-    Requires QUICKNODE_WS_URL and QUICKNODE_HTTP_URL in .env
+    Requires HELIUS_API_KEY (preferred, FREE) or QUICKNODE_WS_URL in .env
     """
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -386,18 +395,24 @@ def main(
     # Load config
     config = Config.from_env()
 
-    # Validate required config
-    if not config.quicknode_ws_url:
-        console.print("[red]ERROR: QUICKNODE_WS_URL not configured.[/red]")
-        console.print("\nSet it in .env file:")
-        console.print("QUICKNODE_WS_URL=wss://your-endpoint.solana-mainnet.quiknode.pro/your-key/")
-        raise typer.Exit(1)
+    # Validate required config - need either Helius or QuickNode
+    has_helius = config.helius_api_key and config.helius_ws_url
+    has_quicknode = config.quicknode_ws_url and config.quicknode_http_url
 
-    if not config.quicknode_http_url:
-        console.print("[red]ERROR: QUICKNODE_HTTP_URL not configured.[/red]")
-        console.print("\nSet it in .env file:")
+    if not has_helius and not has_quicknode:
+        console.print("[red]ERROR: No RPC provider configured.[/red]")
+        console.print("\nSet HELIUS_API_KEY (recommended, FREE) or QuickNode URLs in .env:")
+        console.print("HELIUS_API_KEY=your-helius-api-key")
+        console.print("  OR")
+        console.print("QUICKNODE_WS_URL=wss://your-endpoint.solana-mainnet.quiknode.pro/your-key/")
         console.print("QUICKNODE_HTTP_URL=https://your-endpoint.solana-mainnet.quiknode.pro/your-key/")
         raise typer.Exit(1)
+
+    # Show which provider is being used
+    if has_helius:
+        console.print("[green]Using Helius (FREE, no rate limits)[/green]")
+    else:
+        console.print("[yellow]Using QuickNode (credit-based billing)[/yellow]")
 
     # Initialize database
     init_db(config)
@@ -420,11 +435,12 @@ def main(
     signal.signal(signal.SIGTERM, signal_handler)
 
     # Run the listener
+    provider_info = f"{listener.provider.capitalize()} WebSocket"
     console.print(Panel(
         "[bold]JournalTX - Real-Time Solana LP Monitor[/bold]\n\n"
         "Monitoring Raydium AMM for liquidity additions.\n"
-        "Detection: QuickNode WebSocket + Transaction Parsing\n"
-        "Enrichment: Jupiter + DexScreener (metadata only)",
+        f"Detection: {provider_info} + Transaction Parsing\n"
+        "Enrichment: DexScreener + CoinGecko (metadata only)",
         title="Starting",
         border_style="blue"
     ))
