@@ -96,17 +96,22 @@ pip install -e .
 
 ```bash
 cp .env.example .env
-nano .env  # Add your QuickNode and Telegram credentials
+nano .env
 ```
+
+**Required settings:**
+- `HELIUS_API_KEY` - Get free at https://dev.helius.xyz/
+- `TELEGRAM_BOT_TOKEN` - Create bot via @BotFather
+- `TELEGRAM_CHAT_ID` - Your chat/group ID
 
 ### 3. Choose Profile
 
 ```bash
 # For early meme hunting (recommended)
-PROFILE_TEMPLATE=aggressive
+PROFILE_TEMPLATE=exploratory
 
 # Or use CLI
-python scripts/profile.py switch aggressive
+python scripts/profile.py switch exploratory
 ```
 
 ### 4. Initialize Database
@@ -191,15 +196,17 @@ Alert 2: Another token LP Removed - 60%
 
 ---
 
-### Exploratory ⚡
+### Exploratory ⚡ (RECOMMENDED)
 
 **Best for:** Early entry with balanced noise filtering
 
 **Thresholds:**
-- **LP Add Minimum:** 100 SOL (~$5,000)
-- **Max Actions Per Day:** 5
-- **Volume Spike:** 2x baseline
-- **LP Remove:** 30% of liquidity
+- **LP Add Minimum:** 30 SOL (~$6,000)
+- **LP Ignition Minimum:** 30 SOL (for near-zero baseline)
+- **Max Actions Per Day:** 3
+- **Volume Spike:** 2.5x baseline
+- **LP Remove:** 40% of liquidity
+- **Near-Zero Baseline:** ≤8 SOL
 
 **When to Use:**
 - ✅ You want to catch early-stage opportunities
@@ -210,18 +217,15 @@ Alert 2: Another token LP Removed - 60%
 
 **Example Scenario:**
 ```
-Alert 1: EARLY/SOL LP Added - 150 SOL (pair age: 18 min)
-→ Near-zero ignition! 5 SOL → 155 SOL
+Alert: EARLY/SOL LP Added - 50 SOL (pair age: 18 min)
+→ Near-zero ignition! 3 SOL → 53 SOL
 → This is exactly what you're looking for.
-
-Alert 2: Volume spike 3x on same token (within 30 min)
-→ Multi-signal confirmation!
-→ Second momentum signal confirms opportunity.
+→ New pool creation with meaningful liquidity.
 ```
 
-**Trade Frequency:** 5-10 alerts per week
+**Alert Frequency:** Real early ignitions are **RARE** - expect 0-5 per day.
 
-**⚠️ Warning:** Early opportunities are rare by definition. Expect singles, not dozens. Early asymmetric opportunities are RARE.
+**⚠️ Important:** Most LP activity is small routine trades (0.5-5 SOL). The system correctly filters these out. True ignition events (30+ SOL on new pools) may only happen a few times per day.
 
 ---
 
@@ -617,12 +621,18 @@ python scripts/export_csv.py alerts
 MODE=TEST  # Change to LIVE for production
 
 # Profile Template (EASY SETUP!)
-PROFILE_TEMPLATE=aggressive  # Choose: conservative, balanced, aggressive, degens_only
+PROFILE_TEMPLATE=exploratory  # Choose: conservative, balanced, exploratory
 FILTER_TEMPLATE=default
 
-# Credentials
-QUICKNODE_WS_URL=wss://your-quicknode-url
-QUICKNODE_HTTP_URL=https://your-quicknode-url
+# Helius (PRIMARY - FREE, no rate limits)
+HELIUS_API_KEY=your_helius_api_key
+# Get free API key at: https://dev.helius.xyz/
+
+# QuickNode (BACKUP - paid option)
+# QUICKNODE_WS_URL=wss://your-quicknode-url
+# QUICKNODE_HTTP_URL=https://your-quicknode-url
+
+# Telegram Notifications
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 
@@ -808,21 +818,27 @@ python scripts/review_week.py
 ### Problem: No Alerts Received
 
 **Possible Causes:**
-1. Thresholds too high → Switch to more aggressive profile
-2. No LP additions → Market is slow, wait
-3. QuickNode connection issue → Test connection
+1. **Real ignitions are rare** - Most LP activity is small routine trades (<5 SOL)
+2. Thresholds too high → Lower min LP SOL in profile
+3. Helius/QuickNode connection issue → Check logs
 4. Telegram bot issue → Run `python scripts/test_telegram.py`
+
+**Reality Check:**
+The system may process 10,000+ messages and detect 100+ LP events, but only 0-5 may pass all filters because:
+- Most LP adds are < 30 SOL (routine trades)
+- Most pairs are > 24h old
+- Most tokens have > $20M market cap
 
 **Solution:**
 ```bash
 # Test with manual alert
-python scripts/alert.py --type lp_add --pair TEST/SOL --sol 1000 --lp-before 5 --pair-age 0.1
+python scripts/alert.py --type lp_add --pair TEST/SOL --sol 100 --lp-before 5 --pair-age 0.1
 
 # Check profile
 python scripts/profile.py current
 
-# Lower thresholds if needed
-python scripts/profile.py switch aggressive
+# Check system logs for activity
+docker logs journaltx-bot | grep "Stats:"
 ```
 
 ### Problem: Too Many Alerts
@@ -857,11 +873,15 @@ python scripts/profile.py switch aggressive --filter strict
 
 ### Real On-Chain LP Detection
 
-JournalTX uses **real on-chain data** from QuickNode WebSocket subscriptions - no simulations, no mocks.
+JournalTX uses **real on-chain data** via standard Solana RPC - no simulations, no mocks.
+
+**Provider Options:**
+- **Helius** (Recommended) - FREE tier, no rate limits
+- **QuickNode** - Paid backup option
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    QUICKNODE (PRIMARY DATA SOURCE)                  │
+│              HELIUS / QUICKNODE (PRIMARY DATA SOURCE)               │
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
 │                                                                     │
 │  1. WebSocket → logsSubscribe(Raydium AMM Program)                  │
@@ -876,7 +896,7 @@ JournalTX uses **real on-chain data** from QuickNode WebSocket subscriptions - n
 │  4. Balance Delta Analysis → preBalances vs postBalances            │
 │     └── Calculates: SOL deposited, tokens added, LP minted          │
 │                                                                     │
-│  THIS IS REAL ON-CHAIN LP DETECTION                                 │
+│  THIS IS REAL ON-CHAIN LP DETECTION (standard Solana RPC)           │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -885,7 +905,7 @@ JournalTX uses **real on-chain data** from QuickNode WebSocket subscriptions - n
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
 │                                                                     │
 │  Jupiter Token API → token_mint → symbol, name (FREE)               │
-│  Jupiter/CoinGecko Price API → SOL price in USD (FREE)              │
+│  CoinGecko API → SOL price in USD (FREE)                            │
 │  DexScreener API → market cap, pair age for FILTERING (FREE)        │
 │                                                                     │
 │  These DO NOT detect LP - they only enrich the on-chain data        │
@@ -894,7 +914,7 @@ JournalTX uses **real on-chain data** from QuickNode WebSocket subscriptions - n
 
 ### Data Flow
 
-1. **QuickNode WebSocket** receives Raydium AMM program logs
+1. **Helius/QuickNode WebSocket** receives Raydium AMM program logs
 2. **Signature Extraction** from log notification
 3. **Deduplication** prevents double-processing
 4. **Transaction Fetch** via getTransaction RPC
@@ -962,21 +982,28 @@ Every feature is designed to:
 
 ### Choose Profile Based On:
 
-| Profile | For You If... | Trade Frequency |
+| Profile | For You If... | Alert Frequency |
 |---------|---------------|-----------------|
 | **Conservative** | Want quality only, low time commitment | 1-3/week |
-| **Balanced** | Want balance, can handle 2-3 trades/day | 3-7/week |
-| **Exploratory** | Early entry, experienced, want to catch memes before pump | 5-10/week |
+| **Balanced** | Want balance, moderate risk | 3-7/week |
+| **Exploratory** | Early entry, catch memes before pump | 0-5/day (rare) |
 
 ### Recommended Setup for Early Meme Hunting:
 
 ```bash
-MODE=TEST  # Start in TEST mode
+MODE=LIVE
 PROFILE_TEMPLATE=exploratory  # Best balance for early memes
 FILTER_TEMPLATE=default
+HELIUS_API_KEY=your_key  # FREE at dev.helius.xyz
+```
 
-# After 1 week of testing, switch to LIVE
-MODE=LIVE
+### Current System Stats (Production):
+```
+Provider: Helius (FREE)
+Messages/min: ~3000
+LP Events/min: ~50-100
+Alerts: Only when 30+ SOL added to near-zero pool
+Cost: $0/month (FREE tier)
 ```
 
 ### Key Rules:
