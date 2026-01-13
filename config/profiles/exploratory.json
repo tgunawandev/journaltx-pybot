@@ -6,10 +6,10 @@
   "filters": {
     "_comment": "First defensive layer: filters obvious noise and limits daily decision fatigue",
 
-    "lp_add_min_sol": 30.0,
-    "_comment_lp_add_min_sol": "Minimum SOL added to LP (~$6k). Balanced threshold for meaningful early ignitions.",
+    "lp_add_min_sol": 10.0,
+    "_comment_lp_add_min_sol": "Minimum SOL added to LP (~$2k). Lower threshold to catch more early ignitions.",
 
-    "lp_add_min_usd": 6000.0,
+    "lp_add_min_usd": 2000.0,
     "_comment_lp_add_min_usd": "USD equivalent at ~$200/SOL for sanity checking.",
 
     "lp_remove_min_pct": 40.0,
@@ -28,8 +28,8 @@
     "near_zero_baseline_sol": 8.0,
     "_comment_near_zero_baseline_sol": "Baseline liquidity below this is considered near-zero (birth stage).",
 
-    "min_lp_ignite_sol": 30.0,
-    "_comment_min_lp_ignite_sol": "LP added must be meaningful (30 SOL ~$6k) for real ignition.",
+    "min_lp_ignite_sol": 10.0,
+    "_comment_min_lp_ignite_sol": "LP added must be meaningful (10 SOL ~$2k) for early ignition.",
 
     "signal_window_minutes": 20,
     "_comment_signal_window_minutes": "Signals must cluster quickly or interest is weak.",
